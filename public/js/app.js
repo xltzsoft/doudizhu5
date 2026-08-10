@@ -755,32 +755,47 @@ async function showHistory() {
   try {
     const res = await fetch('/api/history');
     const data = await res.json();
-    const content = document.getElementById('historyContent');
-    if (data.length === 0) {
-      content.innerHTML = '<p class="empty-state">暂无对局记录</p>';
-      return;
-    }
-    content.innerHTML = `
-      <table class="leaderboard-table">
-        <thead><tr><th>时间</th><th>房间</th><th>地主</th><th>获胜方</th><th>积分</th><th>操作</th></tr></thead>
-        <tbody>${data.map(g => {
-          const scores = Object.entries(g.scores).map(([n, s]) => 
-            `<span class="${s > 0 ? 'score-positive' : 'score-negative'}">${escapeHtml(n)}:${s > 0 ? '+' : ''}${s}</span>`
-          ).join(' ');
-          const time = g.created_at ? new Date(g.created_at + 'Z').toLocaleString('zh-CN', {month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
-          return `<tr>
-            <td>${time}</td>
-            <td>${escapeHtml(g.room_name || '')}</td>
-            <td>${escapeHtml(g.landlord || '')}</td>
-            <td>${g.winner_team === 'landlord' ? '地主' : '农民'}</td>
-            <td style="font-size:12px">${scores}</td>
-            <td><button class="btn btn-ghost btn-sm" onclick="showReplay('${g.id}')">回放</button></td>
-          </tr>`;
-        }).join('')}</tbody>
-      </table>`;
+    document.getElementById('historyContent').innerHTML = renderHistoryList(data);
   } catch (e) {
     document.getElementById('historyContent').innerHTML = '<p>加载失败</p>';
   }
+}
+
+/** 对局记录渲染为卡片列表：头部时间/房间/胜负徽章，中间地主与明牌信息，底部玩家得分条 */
+function renderHistoryList(games) {
+  if (!Array.isArray(games) || games.length === 0) {
+    return '<p class="empty-state">暂无对局记录</p>';
+  }
+  const myName = currentUser?.username;
+  return games.map(g => {
+    const time = g.created_at
+      ? new Date(g.created_at + 'Z').toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : '';
+    const landlordWin = g.winner_team === 'landlord';
+    const metaParts = [];
+    if (g.landlord) metaParts.push(`<span class="history-meta-item">大地主 <b>${escapeHtml(g.landlord)}</b></span>`);
+    if (g.hidden_landlord) metaParts.push(`<span class="history-meta-item">暗地主 <b>${escapeHtml(g.hidden_landlord)}</b></span>`);
+    if (g.marked_card) metaParts.push(`<span class="history-meta-item">明牌 ${renderMiniCard(g.marked_card)}</span>`);
+    const chips = Object.entries(g.scores || {})
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, score]) => {
+        const cls = score >= 0 ? 'win' : 'lose';
+        const me = name === myName ? ' is-me' : '';
+        return `<span class="history-chip ${cls}${me}"><span class="history-chip-name">${escapeHtml(name)}</span>${score > 0 ? '+' : ''}${score}</span>`;
+      }).join('');
+    return `<div class="history-card">
+      <div class="history-card-top">
+        <span class="history-time">${time}</span>
+        <span class="history-room">${escapeHtml(g.room_name || '未命名房间')}</span>
+        <span class="history-badge ${landlordWin ? 'landlord' : 'farmer'}">${landlordWin ? '地主胜' : '农民胜'}</span>
+      </div>
+      ${metaParts.length ? `<div class="history-meta">${metaParts.join('')}</div>` : ''}
+      <div class="history-card-bottom">
+        <div class="history-scores">${chips}</div>
+        <button class="btn btn-ghost btn-sm" onclick="showReplay('${g.id}')">回放</button>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 function hideHistory() {
