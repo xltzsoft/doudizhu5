@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>五人斗地主</title>
-  <link rel="stylesheet" href="/css/style.css?v=20260810a">
+  <link rel="stylesheet" href="/css/style.css?v=20260810b">
   <style>
     .modal-overlay { z-index: 0; }
     .modal-content { position: relative; z-index: 1; }
@@ -301,6 +301,19 @@
         </div>
         <div class="my-hand" id="myHand"></div>
         <div class="card-selection-hint" id="cardSelectionHint"></div>
+        <!-- Landlord claim UI (claim phase) -->
+        <div class="marked-selection-area hidden" id="claimSelectionArea">
+          <div class="marked-selection-hint" id="claimSelectionHint">轮到你决定是否要地主</div>
+          <div class="claim-buttons" id="claimDecisionButtons">
+            <button class="btn btn-primary" onclick="claimLandlordAction()">盲要地主</button>
+            <button class="btn btn-accent" onclick="viewClaimHand()">先查看手牌</button>
+          </div>
+          <div class="claim-buttons hidden" id="claimViewedButtons">
+            <button class="btn btn-primary" onclick="claimLandlordAction()">要地主</button>
+            <button class="btn btn-ghost" id="declineLandlordBtn" onclick="declineLandlordAction()">不要</button>
+          </div>
+          <button class="btn btn-ghost btn-sm hidden" id="redealBtn" onclick="redealGameAction()">🔀 重新洗牌发牌</button>
+        </div>
         <!-- Marked card selection UI (landlord only, during selectingMarked phase) -->
         <div class="marked-selection-area hidden" id="markedSelectionArea">
           <div class="marked-selection-hint">你是大地主！请选择2张同花色同数字的牌作为明牌来确定小地主</div>
@@ -383,6 +396,6 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/js/avatar-compression.js?v=20260615a"></script>
-  <script src="/js/app.js?v=20260810a"></script>
+  <script src="/js/app.js?v=20260810b"></script>
 </body>
 </html>

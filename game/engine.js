@@ -56,6 +56,9 @@ class GameEngine {
     this.initialHandsSnapshot = null; // 回放用开局手牌快照
     this.baseScore = this.normalizeBaseScore(options.baseScore || 10);
     this.doubleEnabled = Boolean(options.doubleEnabled);
+    // 要地主流程（明牌持有者可盲要/看牌后决定要/不要，不要则传给下家）
+    this.landlordClaimEnabled = Boolean(options.landlordClaim);
+    this.claimState = null; // { claimant, original, declined: [], mustTake }
     this.doubleDecisions = {};
     this.scoreMultiplier = 1;
     this.revealedPlayers = new Set();
@@ -124,18 +127,39 @@ class GameEngine {
     }
     const markedEntry = dealtCards[Math.floor(Math.random() * dealtCards.length)];
     this.markedCard = markedEntry.card;
-
-    // The player who holds the actual marked card object is the landlord
-    this.landlord = markedEntry.owner;
     this.hiddenLandlord = null;
-
-    // Give bottom cards to landlord
-    this.hands[this.landlord].push(...this.bottomCards);
 
     // Sort all hands
     for (const name of this.playerNames) {
       this.sortHand(name);
     }
+
+    this.lastPlay = null;
+    this.lastPlayPlayer = null;
+    this.passCount = 0;
+
+    if (this.landlordClaimEnabled) {
+      // 要地主流程：底牌先不平分，由明牌持有者优先决定是否要地主；
+      // 地主确定（要地主）后才发底牌并生成开局手牌快照。
+      this.landlord = null;
+      this.initialHandsSnapshot = null;
+      this.claimState = {
+        claimant: markedEntry.owner,
+        original: markedEntry.owner,
+        declined: [],
+        mustTake: false
+      };
+      this.phase = 'claiming';
+      this.currentPlayer = this.playerNames.indexOf(markedEntry.owner);
+      return;
+    }
+
+    // The player who holds the actual marked card object is the landlord
+    this.landlord = markedEntry.owner;
+
+    // Give bottom cards to landlord
+    this.hands[this.landlord].push(...this.bottomCards);
+    this.sortHand(this.landlord);
 
     this.initialHandsSnapshot = {};
     for (const name of this.playerNames) {
@@ -145,9 +169,76 @@ class GameEngine {
     // Enter selecting phase - landlord must choose 2 same-suit-same-rank cards as 明牌
     this.phase = 'selectingMarked';
     this.currentPlayer = this.playerNames.indexOf(this.landlord);
-    this.lastPlay = null;
-    this.lastPlayPlayer = null;
-    this.passCount = 0;
+  }
+
+  /**
+   * 要地主：当前决策人成为大地主并获得 7 张底牌，
+   * 随后进入底牌公示阶段（bottomReveal），公示结束后再选明牌。
+   */
+  claimLandlord(playerName) {
+    if (this.phase !== 'claiming' || !this.claimState) {
+      return { success: false, error: '当前不是要地主阶段' };
+    }
+    if (this.claimState.claimant !== playerName) {
+      return { success: false, error: '还没轮到你决定' };
+    }
+
+    this.landlord = playerName;
+    this.hands[playerName].push(...this.bottomCards);
+    this.sortHand(playerName);
+
+    this.initialHandsSnapshot = {};
+    for (const name of this.playerNames) {
+      this.initialHandsSnapshot[name] = this.hands[name].map(card => card.id);
+    }
+
+    this.phase = 'bottomReveal';
+    this.currentPlayer = this.playerNames.indexOf(playerName);
+    return {
+      success: true,
+      landlord: playerName,
+      bottomCards: this.bottomCards.map(card => card.id),
+      phase: this.phase
+    };
+  }
+
+  /**
+   * 不要地主：地主身份传给下家；轮完一圈回到原明牌持有者时，
+   * 其必须选择要地主（mustTake）。
+   */
+  declineLandlord(playerName) {
+    if (this.phase !== 'claiming' || !this.claimState) {
+      return { success: false, error: '当前不是要地主阶段' };
+    }
+    if (this.claimState.claimant !== playerName) {
+      return { success: false, error: '还没轮到你决定' };
+    }
+    if (this.claimState.mustTake) {
+      return { success: false, error: '地主已轮完一圈，你必须选择要地主' };
+    }
+
+    this.claimState.declined.push(playerName);
+    const idx = this.playerNames.indexOf(playerName);
+    const next = this.playerNames[(idx + 1) % this.playerNames.length];
+    this.claimState.claimant = next;
+    if (next === this.claimState.original) this.claimState.mustTake = true;
+    this.currentPlayer = this.playerNames.indexOf(next);
+    return { success: true, nextClaimant: next, mustTake: this.claimState.mustTake };
+  }
+
+  /** 底牌公示结束，进入选明牌阶段 */
+  finishBottomReveal() {
+    if (this.phase !== 'bottomReveal') {
+      return { success: false, error: '当前不是底牌公示阶段' };
+    }
+    this.phase = 'selectingMarked';
+    this.currentPlayer = this.playerNames.indexOf(this.landlord);
+    return { success: true, phase: this.phase };
+  }
+
+  getClaimState() {
+    if (!this.claimState) return null;
+    return { ...this.claimState, declined: [...this.claimState.declined] };
   }
 
   /**
@@ -895,6 +986,24 @@ class GameEngine {
       }
     }
 
+    // 要地主阶段：下发决策状态；底牌公示阶段：向所有人公开底牌
+    if (this.phase === 'claiming' && this.claimState) {
+      state.claim = {
+        claimant: this.claimState.claimant,
+        original: this.claimState.original,
+        declined: [...this.claimState.declined],
+        mustTake: this.claimState.mustTake,
+        isMyDecision: this.claimState.claimant === playerName,
+        bottomCount: this.bottomCards.length
+      };
+    }
+    if (this.phase === 'bottomReveal') {
+      state.bottomReveal = {
+        landlord: this.landlord,
+        cards: this.bottomCards.map(card => card.id)
+      };
+    }
+
     // During selectingMarked phase, landlord gets available options
     if (this.phase === 'selectingMarked' && playerName === this.landlord) {
       state.markedCardOptions = this.getMarkedCardOptions();
@@ -907,7 +1016,7 @@ class GameEngine {
   getStateForSpectator() {
     const allHands = this.getAllHandsSnapshot();
 
-    return {
+    const state = {
       phase: this.phase,
       isSpectator: true,
       allHands,
@@ -942,6 +1051,24 @@ class GameEngine {
       scoringRevealedPlayers: Array.from(this.scoringRevealedPlayers),
       revealMultiplierAvailable: this.canRevealWithMultiplier()
     };
+
+    if (this.phase === 'claiming' && this.claimState) {
+      state.claim = {
+        claimant: this.claimState.claimant,
+        original: this.claimState.original,
+        declined: [...this.claimState.declined],
+        mustTake: this.claimState.mustTake,
+        bottomCount: this.bottomCards.length
+      };
+    }
+    if (this.phase === 'bottomReveal') {
+      state.bottomReveal = {
+        landlord: this.landlord,
+        cards: this.bottomCards.map(card => card.id)
+      };
+    }
+
+    return state;
   }
 
   // ============ CARD COUNTER ============

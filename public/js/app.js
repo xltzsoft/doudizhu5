@@ -28,6 +28,10 @@ let restoreInFlight = false;
 let pendingInviteRoomId = null;
 // 发牌动画状态：收到 gameDeal 后播放逐张发牌动画，期间暂存 gameState
 let dealAnim = null;
+// 要地主：本局是否已选择"先查看手牌"（仅客户端流程状态）
+let claimHandViewed = false;
+let claimRoundId = null;
+let bottomRevealTimer = null;
 
 // ============ SCREENS ============
 function showScreen(screenId) {
@@ -1138,7 +1142,9 @@ function renderSpectatorState(state) {
 
   // Landlord label
   const landlordLabel = document.getElementById('landlordLabel');
-  let landlordText = `大地主 ${state.landlordDisplayName || getGameDisplayName(state.landlord, state)}`;
+  let landlordText = state.landlord
+    ? `大地主 ${state.landlordDisplayName || getGameDisplayName(state.landlord, state)}`
+    : '地主待定';
   if (state.hiddenLandlord) {
     landlordText += ` | 小地主 ${state.hiddenLandlordDisplayName || getGameDisplayName(state.hiddenLandlord, state)}`;
   }
@@ -1147,9 +1153,16 @@ function renderSpectatorState(state) {
   if (multiplierBadge) multiplierBadge.textContent = state.settings?.label || '';
 
   // Turn indicator
-  document.getElementById('turnIndicator').textContent = state.phase === 'doubling'
-    ? `等待玩家选择加倍（${Object.keys(state.doubleDecisions || {}).length}/5）`
-    : `等待 ${state.currentPlayerDisplayName || getGameDisplayName(state.currentPlayer, state)} 出牌`;
+  const claimantName = state.claim?.claimant
+    ? (state.playerDisplayNames?.[state.claim.claimant] || getGameDisplayName(state.claim.claimant, state))
+    : '';
+  document.getElementById('turnIndicator').textContent = state.phase === 'claiming'
+    ? `等待 ${claimantName} 决定是否要地主`
+    : state.phase === 'bottomReveal'
+      ? '地主底牌公示中…'
+      : state.phase === 'doubling'
+        ? `等待玩家选择加倍（${Object.keys(state.doubleDecisions || {}).length}/5）`
+        : `等待 ${state.currentPlayerDisplayName || getGameDisplayName(state.currentPlayer, state)} 出牌`;
 
   // Render all 5 players with their hands visible
   const container = document.getElementById('spectatorAllPlayers');
@@ -1195,7 +1208,9 @@ function renderSpectatorState(state) {
 
   // Last play in center
   const lastPlayDisplay = document.getElementById('lastPlayDisplay');
-  if (state.lastPlay) {
+  if (state.phase === 'bottomReveal' && state.bottomReveal) {
+    renderBottomRevealCenter(state);
+  } else if (state.lastPlay) {
     lastPlayDisplay.innerHTML = sortCardsForDisplay(state.lastPlay.cards).map(c => {
       const { suit, rank, color } = parseCard(c);
       return `<div class="display-card ${color}">
@@ -1970,6 +1985,7 @@ function connectSocket() {
 
   socket.on('gameState', (state) => {
     gameState = state;
+    if (state.roundId !== claimRoundId) { claimRoundId = state.roundId || null; claimHandViewed = false; }
     rememberRoomContext(state.roomId || currentRoom?.id, 'player');
     hideGameOver();
     hideStartPrompt();
@@ -2442,8 +2458,9 @@ function manualStart() {
 }
 
 // ============ 发牌动画 ============
-const DEAL_ROUND_MS = 150;   // 每轮（各家各一张）间隔
-const DEAL_FLIGHT_MS = 380;  // 单张牌飞行时长
+const DEAL_ROUND_MS = 130;    // 每轮（各家各一张）间隔
+const DEAL_FLIGHT_MS = 420;   // 单张牌飞行时长
+const DEAL_SHUFFLE_MS = 750;  // 开局洗牌动画时长
 
 function beginDealAnimation(data, isSpectator) {
   if (!data || !Array.isArray(data.seatOrder) || data.seatOrder.length === 0) return;
@@ -2533,7 +2550,9 @@ function dealTargetForSeat(seatIdx) {
 }
 
 function runDealAnimation() {
-  const statusEl = dealAnim.layer.querySelector('.deal-status');
+  const layer = dealAnim.layer;
+  const statusEl = layer.querySelector('.deal-status');
+  const deckEl = layer.querySelector('.deal-deck');
   const orders = dealAnim.isSpectator ? (dealAnim.allHandsOrder || {}) : {};
   const rounds = Math.max(
     dealAnim.myHandOrder.length,
@@ -2541,15 +2560,29 @@ function runDealAnimation() {
     1
   );
 
+  // 洗牌开场
+  statusEl.textContent = '洗牌中…';
+  deckEl.classList.add('shuffling');
+  dealSchedule(() => deckEl.classList.remove('shuffling'), DEAL_SHUFFLE_MS);
+
   for (let r = 0; r < rounds; r++) {
     dealSchedule(() => {
+      statusEl.textContent = '发牌中…';
       for (let s = 0; s < dealAnim.seatOrder.length; s++) dealFlyCard(s, r, false);
-    }, r * DEAL_ROUND_MS);
+      // 牌堆随发牌进度变薄
+      const progress = (r + 1) / rounds;
+      deckEl.classList.toggle('deck-2', progress > 1 / 3);
+      deckEl.classList.toggle('deck-1', progress > 2 / 3);
+    }, DEAL_SHUFFLE_MS + r * DEAL_ROUND_MS);
   }
 
   // 底牌飞向地主
   const landlordIdx = Math.max(0, dealAnim.seatOrder.indexOf(dealAnim.landlord));
-  const bottomStart = rounds * DEAL_ROUND_MS + 250;
+  const bottomStart = DEAL_SHUFFLE_MS + rounds * DEAL_ROUND_MS + 250;
+  dealSchedule(() => {
+    deckEl.classList.add('deck-1');
+    statusEl.textContent = '底牌飞向地主…';
+  }, bottomStart - 200);
   for (let i = 0; i < dealAnim.bottomCount; i++) {
     dealSchedule(() => dealFlyCard(landlordIdx, -1, true), bottomStart + i * 90);
   }
@@ -2571,15 +2604,20 @@ function dealFlyCard(seatIdx, roundIdx, isBottom) {
   card.style.left = `${origin.x}px`;
   card.style.top = `${origin.y}px`;
   layer.appendChild(card);
-  card.getBoundingClientRect(); // 强制回流，确保过渡生效
   const dx = target.x - origin.x;
   const dy = target.y - origin.y;
-  const tilt = (Math.random() * 24 - 12).toFixed(1);
-  card.style.transform = `translate(${dx}px, ${dy}px) rotate(${tilt}deg)`;
+  const tilt = Math.random() * 24 - 12;
+  const lift = Math.min(48, Math.hypot(dx, dy) * 0.14);
+  // 弧形轨迹：中点沿飞行方向略微抬升并侧偏
+  card.animate([
+    { transform: 'translate(0px, 0px) rotate(0deg) scale(1)', offset: 0 },
+    { transform: `translate(${dx * 0.5 - dy * 0.06}px, ${dy * 0.5 + dx * 0.06 - lift}px) rotate(${tilt * 0.6}deg) scale(1.05)`, offset: 0.55 },
+    { transform: `translate(${dx}px, ${dy}px) rotate(${tilt}deg) scale(0.9)`, offset: 1 }
+  ], { duration: DEAL_FLIGHT_MS, easing: 'cubic-bezier(0.3, 0.55, 0.35, 1)', fill: 'forwards' });
   const cleanupTimer = setTimeout(() => {
     card.remove();
     if (target.mine && !isBottom) dealAppendMyCard(roundIdx);
-  }, DEAL_FLIGHT_MS + 80);
+  }, DEAL_FLIGHT_MS + 60);
   dealAnim.timers.push(cleanupTimer);
 }
 
@@ -2601,7 +2639,21 @@ function finishDealAnimation() {
   cleanupDealAnimation();
   if (latestState) {
     if (isSpectator) renderSpectatorState(latestState);
-    else renderGameState(latestState);
+    else {
+      renderGameState(latestState);
+      // 交接：真实手牌错落地浮现，衔接动画中的集牌条
+      const myHand = document.getElementById('myHand');
+      if (myHand) {
+        myHand.classList.add('hand-enter');
+        myHand.querySelectorAll('.game-card').forEach((el, i) => {
+          el.style.animationDelay = `${Math.min(i * 14, 430)}ms`;
+        });
+        setTimeout(() => {
+          myHand.classList.remove('hand-enter');
+          myHand.querySelectorAll('.game-card').forEach(el => { el.style.animationDelay = ''; });
+        }, 1000);
+      }
+    }
   } else {
     // 兜底：状态尚未到达时先恢复按钮，后续 gameState 渲染会再按阶段设置
     document.getElementById('gameActions')?.classList.remove('hidden');
@@ -2620,6 +2672,65 @@ function cleanupDealAnimation() {
   dealAnim = null;
 }
 
+// ============ 要地主决策 ============
+function claimLandlordAction() {
+  if (!socket || !gameState?.roomId) return;
+  socket.emit('claimLandlord', { roomId: gameState.roomId }, (res) => {
+    if (!res?.success && res?.error) showToast(res.error);
+  });
+}
+
+function declineLandlordAction() {
+  if (!socket || !gameState?.roomId) return;
+  socket.emit('declineLandlord', { roomId: gameState.roomId }, (res) => {
+    if (!res?.success && res?.error) showToast(res.error);
+  });
+}
+
+function viewClaimHand() {
+  claimHandViewed = true;
+  if (gameState && !gameState.isSpectator) renderGameState(gameState);
+}
+
+function redealGameAction() {
+  if (!socket || !gameState?.roomId) return;
+  socket.emit('redealGame', { roomId: gameState.roomId }, (res) => {
+    if (!res?.success && res?.error) showToast(res.error);
+  });
+}
+
+/** 底牌公示：中央亮出地主的 7 张底牌，附带 8 秒倒计时（服务端到点自动进入下一阶段） */
+function renderBottomRevealCenter(state) {
+  const lastPlayDisplay = document.getElementById('lastPlayDisplay');
+  const cards = sortCardsForDisplay(state.bottomReveal?.cards || []);
+  const landlordName = state.bottomReveal?.landlord
+    ? (state.playerDisplayNames?.[state.bottomReveal.landlord] || getGameDisplayName(state.bottomReveal.landlord, state))
+    : '';
+  lastPlayDisplay.innerHTML = `<div class="bottom-reveal">
+    <div class="bottom-reveal-title">大地主 ${escapeHtml(landlordName)} 的底牌 · 公示中 <span id="bottomRevealCount">8</span>s</div>
+    <div class="bottom-reveal-cards">${cards.map(cardId => {
+      const { suit, rank, color } = parseCard(cardId);
+      return `<div class="display-card ${color} bottom-reveal-card">
+        <span class="card-rank">${rank}</span>
+        <span class="card-suit">${suit}</span>
+      </div>`;
+    }).join('')}</div>
+  </div>`;
+
+  if (bottomRevealTimer) clearInterval(bottomRevealTimer);
+  let remain = 8;
+  bottomRevealTimer = setInterval(() => {
+    remain -= 1;
+    const el = document.getElementById('bottomRevealCount');
+    if (!el || remain <= 0) {
+      clearInterval(bottomRevealTimer);
+      bottomRevealTimer = null;
+      return;
+    }
+    el.textContent = String(remain);
+  }, 1000);
+}
+
 function renderGameState(state) {
   resetPlayerGameUI();
 
@@ -2634,7 +2745,9 @@ function renderGameState(state) {
   }
 
   const landlordLabel = document.getElementById('landlordLabel');
-  let landlordText = `大地主 ${state.landlordDisplayName || getGameDisplayName(state.landlord, state)}`;
+  let landlordText = state.landlord
+    ? `大地主 ${state.landlordDisplayName || getGameDisplayName(state.landlord, state)}`
+    : '地主待定';
   if (state.hiddenLandlord) {
     landlordText += ` | 小地主 ${state.hiddenLandlordDisplayName || getGameDisplayName(state.hiddenLandlord, state)}`;
   }
@@ -2643,7 +2756,17 @@ function renderGameState(state) {
   if (multiplierBadge) multiplierBadge.textContent = state.settings?.label || '';
 
   const turnIndicator = document.getElementById('turnIndicator');
-  if (state.phase === 'selectingMarked') {
+  if (state.phase === 'claiming') {
+    const claim = state.claim || {};
+    const claimantName = claim.claimant
+      ? (state.playerDisplayNames?.[claim.claimant] || getGameDisplayName(claim.claimant, state))
+      : '';
+    turnIndicator.textContent = claim.isMyDecision
+      ? (claim.mustTake ? '地主已轮完一圈，你必须选择要地主' : '轮到你决定是否要地主')
+      : `等待 ${claimantName} 决定是否要地主`;
+  } else if (state.phase === 'bottomReveal') {
+    turnIndicator.textContent = '地主底牌公示中…';
+  } else if (state.phase === 'selectingMarked') {
     turnIndicator.textContent = state.myName === state.landlord ? '请选择明牌' : `等待 ${state.landlordDisplayName || getGameDisplayName(state.landlord, state)} 选择明牌`;
   } else if (state.phase === 'doubling') {
     const doubleDecisions = state.doubleDecisions || {};
@@ -2697,7 +2820,9 @@ function renderGameState(state) {
   });
 
   const lastPlayDisplay = document.getElementById('lastPlayDisplay');
-  if (state.lastPlay) {
+  if (state.phase === 'bottomReveal' && state.bottomReveal) {
+    renderBottomRevealCenter(state);
+  } else if (state.lastPlay) {
     lastPlayDisplay.innerHTML = sortCardsForDisplay(state.lastPlay.cards).map(cardId => {
       const { suit, rank, color } = parseCard(cardId);
       return `<div class="display-card ${color}">
@@ -2717,9 +2842,38 @@ function renderGameState(state) {
   const hintBtn = document.getElementById('hintBtn');
   const markedSelectionArea = document.getElementById('markedSelectionArea');
   const doubleSelectionArea = document.getElementById('doubleSelectionArea');
+  const claimSelectionArea = document.getElementById('claimSelectionArea');
   const gameActions = document.getElementById('gameActions');
 
-  if (state.phase === 'selectingMarked') {
+  if (state.phase === 'claiming') {
+    const claim = state.claim || {};
+    const isOwner = Boolean(currentRoom?.owner) && currentRoom.owner === currentUser?.username;
+    markedSelectionArea.classList.add('hidden');
+    if (doubleSelectionArea) doubleSelectionArea.classList.add('hidden');
+    gameActions.classList.add('hidden');
+
+    claimSelectionArea.classList.toggle('hidden', !(claim.isMyDecision || isOwner));
+    const decisionButtons = document.getElementById('claimDecisionButtons');
+    const viewedButtons = document.getElementById('claimViewedButtons');
+    const claimHint = document.getElementById('claimSelectionHint');
+    if (decisionButtons) decisionButtons.classList.toggle('hidden', !claim.isMyDecision || claimHandViewed);
+    if (viewedButtons) viewedButtons.classList.toggle('hidden', !claim.isMyDecision || !claimHandViewed);
+    document.getElementById('declineLandlordBtn')?.classList.toggle('hidden', Boolean(claim.mustTake));
+    document.getElementById('redealBtn')?.classList.toggle('hidden', !isOwner);
+    if (claimHint) {
+      claimHint.textContent = claim.mustTake
+        ? '地主已轮完一圈，你必须选择要地主'
+        : claim.isMyDecision
+          ? (claimHandViewed ? '看完手牌了，要地主还是不要？' : '轮到你决定是否要地主（盲要或先查看手牌）')
+          : '等待其他玩家决定要地主，房主可重新洗牌发牌';
+    }
+  } else if (state.phase === 'bottomReveal') {
+    claimSelectionArea.classList.add('hidden');
+    markedSelectionArea.classList.add('hidden');
+    if (doubleSelectionArea) doubleSelectionArea.classList.add('hidden');
+    gameActions.classList.add('hidden');
+  } else if (state.phase === 'selectingMarked') {
+    claimSelectionArea.classList.add('hidden');
     if (doubleSelectionArea) doubleSelectionArea.classList.add('hidden');
     if (state.myName === state.landlord) {
       markedSelectionArea.classList.remove('hidden');
@@ -2729,6 +2883,7 @@ function renderGameState(state) {
       gameActions.classList.add('hidden');
     }
   } else if (state.phase === 'doubling') {
+    claimSelectionArea.classList.add('hidden');
     markedSelectionArea.classList.add('hidden');
     gameActions.classList.add('hidden');
     if (doubleSelectionArea) {
@@ -2743,6 +2898,7 @@ function renderGameState(state) {
       doubleSelectionArea.classList.toggle('hidden', alreadyDecided);
     }
   } else {
+    claimSelectionArea.classList.add('hidden');
     markedSelectionArea.classList.add('hidden');
     if (doubleSelectionArea) doubleSelectionArea.classList.add('hidden');
     gameActions.classList.remove('hidden');

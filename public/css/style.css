@@ -1439,12 +1439,23 @@ body {
     linear-gradient(135deg, var(--brand), var(--accent));
   box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.85), var(--shadow-card);
 }
-.deal-deck i { position: absolute; inset: 0; }
+.deal-deck i { position: absolute; inset: 0; transition: opacity 0.3s ease; }
 .deal-deck i:nth-child(1) { transform: translate(-4px, -4px) rotate(-5deg); }
 .deal-deck i:nth-child(2) { transform: translate(-2px, -2px) rotate(-2deg); }
+.deal-deck.deck-2 i:nth-child(3) { opacity: 0; }
+.deal-deck.deck-1 i:nth-child(3),
+.deal-deck.deck-1 i:nth-child(2) { opacity: 0; }
+.deal-deck.shuffling i { animation: deckShuffle 0.75s ease-in-out; }
+.deal-deck.shuffling i:nth-child(2) { animation-delay: 0.06s; }
+.deal-deck.shuffling i:nth-child(3) { animation-delay: 0.12s; }
+@keyframes deckShuffle {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  20% { transform: translate(-14px, -6px) rotate(-14deg); }
+  45% { transform: translate(12px, 2px) rotate(10deg); }
+  70% { transform: translate(-8px, 3px) rotate(-7deg); }
+}
 .deal-fly-card {
   position: absolute; width: 42px; height: 60px; margin: -30px 0 0 -21px;
-  transition: transform 0.38s cubic-bezier(0.25, 0.7, 0.35, 1);
   will-change: transform; z-index: 2;
 }
 .deal-fly-bottom { box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.85), 0 0 12px var(--gold-glow); }
@@ -1457,7 +1468,17 @@ body {
   background: linear-gradient(160deg, #ffffff 0%, var(--card-surface) 60%, #f7f0ea 100%);
   border-radius: 7px; box-shadow: var(--shadow-card);
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  font-weight: 700; animation: dealCardPop 0.18s ease;
+  font-weight: 700; animation: dealCardFlipIn 0.24s ease-out;
+}
+@keyframes dealCardFlipIn {
+  0% { transform: rotateY(95deg) translateY(-8px) scale(0.85); opacity: 0.3; }
+  100% { transform: rotateY(0deg) translateY(0) scale(1); opacity: 1; }
+}
+/* 发牌动画结束后真实手牌的错落浮现 */
+.my-hand.hand-enter .game-card { animation: dealHandIn 0.3s ease both; }
+@keyframes dealHandIn {
+  from { transform: translateY(14px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
 }
 .deal-my-card:first-child { margin-left: 0; }
 .deal-my-card.red { color: var(--card-red); }
@@ -1506,3 +1527,30 @@ body {
 .turn-indicator { padding: 4px 12px; border-radius: var(--radius-pill); background: rgba(var(--brand-rgb), 0.08); }
 .turn-indicator.my-turn { background: var(--green-bg); }
 .card-count-badge { background: rgba(var(--brand-rgb), 0.10); color: var(--brand); font-weight: 650; }
+
+/* ============ 要地主决策与底牌公示 ============ */
+.claim-buttons { display: flex; gap: var(--space-3); justify-content: center; flex-wrap: wrap; }
+#claimSelectionArea { flex-wrap: wrap; justify-content: center; }
+#redealBtn { margin-top: 2px; }
+.bottom-reveal { display: flex; flex-direction: column; align-items: center; gap: var(--space-3); }
+.bottom-reveal-title {
+  font-size: 13px; font-weight: 650; color: var(--gold);
+  padding: 4px 14px; border-radius: var(--radius-pill);
+  background: var(--gold-glow); border: 1px solid rgba(201, 169, 110, 0.3);
+}
+.bottom-reveal-cards { display: flex; justify-content: center; }
+.bottom-reveal-card {
+  border: 1px solid rgba(201, 169, 110, 0.45);
+  box-shadow: 0 4px 16px var(--gold-glow), var(--shadow-card);
+  animation: bottomRevealIn 0.35s ease both;
+}
+.bottom-reveal-card:nth-child(2) { animation-delay: 0.06s; }
+.bottom-reveal-card:nth-child(3) { animation-delay: 0.12s; }
+.bottom-reveal-card:nth-child(4) { animation-delay: 0.18s; }
+.bottom-reveal-card:nth-child(5) { animation-delay: 0.24s; }
+.bottom-reveal-card:nth-child(6) { animation-delay: 0.30s; }
+.bottom-reveal-card:nth-child(7) { animation-delay: 0.36s; }
+@keyframes bottomRevealIn {
+  from { transform: rotateY(90deg) translateY(-10px); opacity: 0; }
+  to { transform: rotateY(0deg) translateY(0); opacity: 1; }
+}

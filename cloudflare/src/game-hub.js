@@ -8,6 +8,8 @@ const ROOMS_SNAPSHOT_KEY = 'roomsSnapshot';
 const AI_TURN_DELAY_MS = 800;
 const AI_TURN_DELAY_JITTER_MS = 800;
 const AI_MARKED_SELECT_DELAY_MS = 500;
+const AI_CLAIM_DELAY_MS = 700;
+const BOTTOM_REVEAL_MS = 8000;
 const MUTATING_SOCKET_EVENTS = new Set([
   'createRoom',
   'joinRoom',
@@ -20,6 +22,9 @@ const MUTATING_SOCKET_EVENTS = new Set([
   'pass',
   'selectMarkedCards',
   'chooseDouble',
+  'claimLandlord',
+  'declineLandlord',
+  'redealGame',
   'revealHand',
   'settleGame',
   'requestSpectate',
@@ -272,6 +277,9 @@ export class GameHubCore {
       getHint: async () => this.getHint(username, data.roomId),
       selectMarkedCards: () => this.selectMarkedCards(username, data.roomId, data.cards),
       chooseDouble: () => this.chooseDouble(username, data.roomId, data.doubled),
+      claimLandlord: () => this.claimLandlord(username, data.roomId),
+      declineLandlord: () => this.declineLandlord(username, data.roomId),
+      redealGame: () => this.redealGame(username, data.roomId),
       revealHand: () => this.revealHand(username, data.roomId),
       chat: () => this.chat(username, data.roomId, data.message),
       settleGame: () => this.settleGame(username, data.roomId),
@@ -417,7 +425,8 @@ export class GameHubCore {
     room.settings = normalizeRoomSettings(room.settings);
     room.game = new GameEngine(room.players.map(player => player.username), {
       baseScore: room.settings.baseScore,
-      doubleEnabled: room.settings.doubleEnabled
+      doubleEnabled: room.settings.doubleEnabled,
+      landlordClaim: true
     });
     room.game.deal();
     this.emitDealEvents(room, roomId);
@@ -459,6 +468,110 @@ export class GameHubCore {
         if (socket) this.emit(socket, 'spectatorGameDeal', spectatorPayload);
       }
     }
+  }
+
+  /**
+   * 要地主：决策人成为大地主，底牌公示 8 秒后进入选明牌阶段。
+   */
+  async claimLandlord(username, roomId) {
+    const room = this.rooms.get(roomId);
+    if (!room?.game) return { success: false, error: '对局不存在' };
+    const result = room.game.claimLandlord(username);
+    if (!result.success) {
+      const socket = this.onlineUsers.get(username);
+      if (socket) this.emit(socket, 'playError', { error: result.error });
+      return result;
+    }
+    this.chat('系统', roomId, `${username} 选择要地主，7 张底牌公示 8 秒`);
+    this.broadcastGameState(roomId);
+    this.broadcastRoomState(roomId);
+    this.schedule(() => this.finishBottomReveal(room, roomId), BOTTOM_REVEAL_MS);
+    this.persistRoomsSoon();
+    return result;
+  }
+
+  /**
+   * 不要地主：地主身份传给下家；轮完一圈回到原点时必须接受。
+   */
+  async declineLandlord(username, roomId) {
+    const room = this.rooms.get(roomId);
+    if (!room?.game) return { success: false, error: '对局不存在' };
+    const result = room.game.declineLandlord(username);
+    if (!result.success) {
+      const socket = this.onlineUsers.get(username);
+      if (socket) this.emit(socket, 'playError', { error: result.error });
+      return result;
+    }
+    this.chat('系统', roomId, result.mustTake
+      ? `${username} 不要地主，地主身份回到 ${result.nextClaimant}，已轮完一圈必须选择要地主`
+      : `${username} 不要地主，地主身份传给下家 ${result.nextClaimant}`);
+    this.broadcastGameState(roomId);
+    this.resumeRoomFlow(room, roomId);
+    this.persistRoomsSoon();
+    return result;
+  }
+
+  /**
+   * 房主在要地主阶段重新洗牌发牌。
+   */
+  redealGame(username, roomId) {
+    const room = this.rooms.get(roomId);
+    if (!room?.game) return { success: false, error: '对局不存在' };
+    if (room.owner !== username) return { success: false, error: '只有房主可以重新洗牌发牌' };
+    if (room.game.phase !== 'claiming') return { success: false, error: '当前不能重新洗牌' };
+
+    room.roundId = randomId(8);
+    room.game = new GameEngine(room.players.map(player => player.username), {
+      baseScore: room.settings.baseScore,
+      doubleEnabled: room.settings.doubleEnabled,
+      landlordClaim: true
+    });
+    room.game.deal();
+    this.chat('系统', roomId, `${username} 重新洗牌发牌`);
+    this.emitDealEvents(room, roomId);
+    this.broadcastGameState(roomId);
+    this.resumeRoomFlow(room, roomId);
+    this.persistRoomsSoon();
+    return { success: true, roundId: room.roundId };
+  }
+
+  /** 底牌公示 8 秒结束后进入选明牌阶段 */
+  async finishBottomReveal(room, roomId) {
+    if (!room.game || room.game.phase !== 'bottomReveal') return;
+    room.game.finishBottomReveal();
+    this.broadcastGameState(roomId);
+    this.resumeRoomFlow(room, roomId);
+    await this.persistRooms();
+  }
+
+  /** AI 决策是否要地主：必接或手牌强度足够则要，否则不要 */
+  async autoResolveAiClaim(room, roomId) {
+    if (!room.game || room.game.phase !== 'claiming') return;
+    const claimant = room.game.claimState?.claimant;
+    const seat = room.players.find(player => player?.username === claimant);
+    if (!seat?.isAI) return;
+    if (this.shouldAiClaim(room.game, claimant)) {
+      await this.claimLandlord(claimant, roomId);
+    } else {
+      await this.declineLandlord(claimant, roomId);
+    }
+  }
+
+  shouldAiClaim(game, playerName) {
+    const claim = game.getClaimState();
+    if (claim?.mustTake) return true;
+    const hand = game.hands[playerName] || [];
+    const byId = {};
+    let score = 0;
+    for (const card of hand) {
+      if (card.rank === 'D') score += 3;
+      else if (card.rank === 'X') score += 2;
+      else if (card.rank === '2') score += 1.5;
+      else if (card.rank === 'A') score += 0.5;
+      byId[card.id] = (byId[card.id] || 0) + 1;
+    }
+    for (const count of Object.values(byId)) if (count >= 4) score += 4; // 炸弹
+    return score >= 10;
   }
 
   async playCards(username, roomId, cards) {
@@ -1075,6 +1188,13 @@ export class GameHubCore {
 
   async resumeRoomFlow(room, roomId) {
     if (!room?.game || room.game.gameOver) return;
+    if (room.game.phase === 'claiming') {
+      const claimant = room.game.claimState?.claimant;
+      const seat = room.players.find(player => player?.username === claimant);
+      if (seat?.isAI) this.schedule(() => this.autoResolveAiClaim(room, roomId), AI_CLAIM_DELAY_MS);
+      return;
+    }
+    if (room.game.phase === 'bottomReveal') return; // 公示结束的调度已在要地主时注册
     if (room.game.phase === 'selectingMarked') {
       const landlord = room.players.find(player => player?.username === room.game.landlord);
       if (landlord?.isAI) this.schedule(() => this.autoSelectMarkedCards(room, roomId), AI_MARKED_SELECT_DELAY_MS);

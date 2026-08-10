@@ -777,6 +777,78 @@ section('观战状态');
   assert(spectState.landlord !== null, '包含地主');
 }
 
+// ============ TEST 17: 要地主流程 ============
+section('要地主流程');
+{
+  const engine = new GameEngine(['A', 'B', 'C', 'D', 'E'], { landlordClaim: true });
+  engine.deal();
+
+  assert(engine.phase === 'claiming', '发牌后进入要地主阶段');
+  assert(engine.landlord === null, '要地主前地主未定');
+  assert(engine.playerNames.every(n => engine.hands[n].length === 31), '要地主前每家31张');
+  assert(engine.bottomCards.length === 7, '底牌7张暂存');
+  assert(engine.claimState.claimant === engine.claimState.original, '明牌持有者优先决策');
+  assert(engine.initialHandsSnapshot === null, '要地主前无开局快照');
+
+  const original = engine.claimState.original;
+
+  // 非决策人不能操作
+  const other = engine.playerNames.find(n => n !== original);
+  assert(!engine.claimLandlord(other).success, '非决策人不能要地主');
+  assert(!engine.declineLandlord(other).success, '非决策人不能不要地主');
+
+  // 决策状态下发
+  const claimState = engine.getStateForPlayer(original).claim;
+  assert(claimState && claimState.isMyDecision === true, '决策人收到 isMyDecision');
+  assert(engine.getStateForPlayer(other).claim.isMyDecision === false, '非决策人 isMyDecision 为 false');
+
+  // 依次不要，轮完一圈回到原点必须接受
+  let claimant = original;
+  for (let i = 0; i < 5; i++) {
+    const r = engine.declineLandlord(claimant);
+    assert(r.success, `第${i + 1}家可以不要地主`);
+    claimant = r.nextClaimant;
+  }
+  assert(claimant === original, '轮完一圈回到原点');
+  assert(engine.claimState.mustTake === true, '回到原点后必须接受');
+  assert(!engine.declineLandlord(original).success, '必须接受时不能不要');
+
+  // 要地主：拿底牌、生成快照、进入公示
+  const claimed = engine.claimLandlord(original);
+  assert(claimed.success, '必须接受时可以要地主');
+  assert(engine.landlord === original, '要地主后地主确定');
+  assert(engine.hands[original].length === 38, '地主38张牌');
+  assert(engine.phase === 'bottomReveal', '要地主后进入底牌公示');
+  assert(claimed.bottomCards.length === 7, '公示底牌7张');
+  assert(engine.initialHandsSnapshot[original].length === 38, '开局快照含底牌');
+  const revealState = engine.getStateForPlayer(other).bottomReveal;
+  assert(revealState && revealState.cards.length === 7, '公示阶段所有人可见底牌');
+  assert(engine.getStateForSpectator().bottomReveal.cards.length === 7, '观战者可见底牌');
+
+  // 公示结束进入选明牌
+  const finished = engine.finishBottomReveal();
+  assert(finished.success && engine.phase === 'selectingMarked', '公示结束进入选明牌');
+  assert(engine.getStateForPlayer(original).markedCardOptions !== undefined, '地主收到明牌选项');
+
+  // 中途要地主：第二家直接要
+  const engine2 = new GameEngine(['A', 'B', 'C', 'D', 'E'], { landlordClaim: true });
+  engine2.deal();
+  const first = engine2.claimState.claimant;
+  engine2.declineLandlord(first);
+  const second = engine2.claimState.claimant;
+  assert(second !== first && engine2.claimState.mustTake === false, '传给下家');
+  assert(engine2.claimLandlord(second).success, '下家可以要地主');
+  assert(engine2.landlord === second, '地主为第二家');
+  assert(engine2.hands[second].length === 38, '第二家拿到底牌');
+
+  // 旧流程（未开启 landlordClaim）不受影响
+  const legacy = new GameEngine(['A', 'B', 'C', 'D', 'E']);
+  legacy.deal();
+  assert(legacy.phase === 'selectingMarked', '旧流程直接进入选明牌');
+  assert(legacy.landlord !== null, '旧流程发牌即定地主');
+  assert(legacy.hands[legacy.landlord].length === 38, '旧流程地主直接拿底牌');
+}
+
 // ============ Summary ============
 console.log('\n' + '='.repeat(40));
 console.log(`测试完成: ${testsPassed} 通过, ${testsFailed} 失败`);

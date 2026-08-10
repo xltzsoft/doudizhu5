@@ -108,6 +108,110 @@ describe('GameHubCore', () => {
     expect(new Set(allUids).size).toBe(162);
   });
 
+  it('runs the landlord claim flow: decline around the table, must-take, claim, reveal', async () => {
+    const core = makeCore();
+    const sockets = {};
+    for (const name of ['p1', 'p2', 'p3', 'p4', 'p5']) sockets[name] = attach(core, name);
+    const { roomId } = core.createRoom('p1', sockets.p1, {});
+    for (const name of ['p2', 'p3', 'p4', 'p5']) core.joinRoom(name, sockets[name], roomId);
+    for (const name of ['p1', 'p2', 'p3', 'p4', 'p5']) core.toggleReady(name, roomId);
+    expect(core.startGame('p1', roomId)).toMatchObject({ success: true });
+
+    const room = core.rooms.get(roomId);
+    expect(room.game.phase).toBe('claiming');
+    expect(room.game.landlord).toBeNull();
+    const original = room.game.claimState.claimant;
+    // 底牌在要地主之前不平分
+    expect(room.game.playerNames.map(name => room.game.hands[name].length)).toEqual([31, 31, 31, 31, 31]);
+    // 每个玩家都收到要地主决策状态，且只有当前决策人 isMyDecision
+    const st = sockets[original].events('gameState').at(-1);
+    expect(st.phase).toBe('claiming');
+    expect(st.claim).toMatchObject({ claimant: original, original, mustTake: false, isMyDecision: true });
+
+    // 非决策人不能要/不要
+    const other = room.game.playerNames.find(name => name !== original);
+    expect((await core.claimLandlord(other, roomId)).success).toBe(false);
+    expect((await core.declineLandlord(other, roomId)).success).toBe(false);
+
+    // 依次不要，轮完一圈回到原点时必须接受
+    let claimant = original;
+    for (let i = 0; i < 5; i++) {
+      const result = await core.declineLandlord(claimant, roomId);
+      expect(result.success).toBe(true);
+      claimant = result.nextClaimant;
+    }
+    expect(claimant).toBe(original);
+    expect(room.game.claimState.mustTake).toBe(true);
+    expect((await core.declineLandlord(original, roomId)).success).toBe(false);
+
+    // 要地主：拿到底牌，进入公示阶段
+    const claimed = await core.claimLandlord(original, roomId);
+    expect(claimed.success).toBe(true);
+    expect(room.game.phase).toBe('bottomReveal');
+    expect(room.game.landlord).toBe(original);
+    expect(room.game.hands[original]).toHaveLength(38);
+    expect(room.game.initialHandsSnapshot[original]).toHaveLength(38);
+    const revealState = sockets.p2.events('gameState').at(-1);
+    expect(revealState.bottomReveal).toMatchObject({ landlord: original });
+    expect(revealState.bottomReveal.cards).toHaveLength(7);
+
+    // 公示 8 秒的调度执行后进入选明牌阶段
+    await core.flushScheduled();
+    expect(room.game.phase).toBe('selectingMarked');
+  });
+
+  it('lets only the room owner redeal during the claim phase', async () => {
+    const core = makeCore();
+    const ownerSocket = attach(core, 'owner');
+    const p2Socket = attach(core, 'p2');
+    const { roomId } = core.createRoom('owner', ownerSocket, {});
+    core.joinRoom('p2', p2Socket, roomId);
+    core.toggleReady('owner', roomId);
+    core.toggleReady('p2', roomId);
+    expect(core.startGame('owner', roomId)).toMatchObject({ success: true });
+
+    const room = core.rooms.get(roomId);
+    expect(room.game.phase).toBe('claiming');
+    const firstRoundId = room.roundId;
+
+    expect(core.redealGame('p2', roomId).success).toBe(false);
+    const redealt = core.redealGame('owner', roomId);
+    expect(redealt.success).toBe(true);
+    expect(room.roundId).not.toBe(firstRoundId);
+    expect(room.game.phase).toBe('claiming');
+    expect(room.game.landlord).toBeNull();
+    // 重新发牌后客户端会收到新的发牌事件
+    expect(ownerSocket.events('gameDeal').length).toBe(2);
+    expect(p2Socket.events('gameDeal').length).toBe(2);
+    expect(ownerSocket.events('gameDeal').at(-1).roundId).toBe(room.roundId);
+
+    // 过了要地主阶段不能再洗牌
+    await core.claimLandlord(room.game.claimState.claimant, roomId);
+    expect(core.redealGame('owner', roomId).success).toBe(false);
+  });
+
+  it('auto-resolves claim decisions for AI seats', async () => {
+    const core = makeCore();
+    const ownerSocket = attach(core, 'owner');
+    const { roomId } = core.createRoom('owner', ownerSocket, {});
+    core.toggleReady('owner', roomId);
+    expect(core.startGame('owner', roomId)).toMatchObject({ success: true });
+
+    const room = core.rooms.get(roomId);
+    expect(room.players.filter(player => player.isAI)).toHaveLength(4);
+    // AI 座位是要地主决策人时，调度后自动要/不要
+    await core.flushScheduled();
+    if (room.game.phase === 'claiming') {
+      // 只剩真人（房主）未决定，手动要地主
+      expect(room.game.claimState.claimant).toBe('owner');
+      expect((await core.claimLandlord('owner', roomId)).success).toBe(true);
+      await core.flushScheduled();
+    }
+    // 地主已确定并经过公示；若地主是 AI，选明牌/加倍也会被自动推进
+    expect(['selectingMarked', 'doubling', 'playing']).toContain(room.game.phase);
+    expect(room.game.landlord).toBeTruthy();
+  });
+
   it('fills empty seats with AI when prepared humans start', () => {
     const core = makeCore();
     const ownerSocket = attach(core, 'owner');
