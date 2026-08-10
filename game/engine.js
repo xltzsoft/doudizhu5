@@ -103,6 +103,16 @@ class GameEngine {
     // Last 7 cards are bottom cards
     this.bottomCards = deck.slice(155, 162);
 
+    // Record the original deal order (before sorting) so clients can
+    // replay the dealing animation card by card.
+    this.dealSequence = {
+      hands: {},
+      bottom: this.bottomCards.map(card => card.uid)
+    };
+    for (const name of this.playerNames) {
+      this.dealSequence.hands[name] = this.hands[name].map(card => card.uid);
+    }
+
     // Pick a non-joker card from dealt cards (not bottom cards) as the marked card
     const dealtCards = [];
     for (const name of this.playerNames) {
@@ -819,6 +829,14 @@ class GameEngine {
     if (type1.length !== type2.length) return false;
 
     return type1.mainValue > type2.mainValue;
+  }
+
+  /**
+   * 发牌顺序快照：{ hands: { player: [uid...] }, bottom: [uid...] }
+   * 顺序即逐张发牌顺序（含排序前），供客户端播发牌动画。
+   */
+  getDealSequence() {
+    return this.dealSequence || null;
   }
 
   // ============ STATE ============

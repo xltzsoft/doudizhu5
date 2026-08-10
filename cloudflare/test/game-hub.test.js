@@ -72,6 +72,42 @@ describe('GameHubCore', () => {
     expect(room.game.playerNames).toEqual(['p1', 'p2', 'p3', 'p4', 'p5']);
   });
 
+  it('emits gameDeal with per-player deal order when the game starts', () => {
+    const core = makeCore();
+    const ownerSocket = attach(core, 'owner');
+    const p2Socket = attach(core, 'p2');
+    const { roomId } = core.createRoom('owner', ownerSocket, {});
+    core.joinRoom('p2', p2Socket, roomId);
+    core.toggleReady('owner', roomId);
+    core.toggleReady('p2', roomId);
+
+    expect(core.startGame('owner', roomId)).toMatchObject({ success: true });
+    const room = core.rooms.get(roomId);
+
+    for (const [name, socket] of [['owner', ownerSocket], ['p2', p2Socket]]) {
+      const deal = socket.events('gameDeal').at(-1);
+      expect(deal).toMatchObject({
+        roomId,
+        roundId: room.roundId,
+        myName: name,
+        landlord: room.game.landlord,
+        bottomCount: 7
+      });
+      expect(deal.seatOrder).toHaveLength(5);
+      expect(deal.myHandOrder).toHaveLength(31);
+      expect(deal.markedCard).toBeTruthy();
+      // 发牌顺序必须与引擎中该玩家的手牌一致（与排序无关）
+      const handUids = new Set((room.game.hands[name] || []).map(card => card.uid));
+      for (const uid of deal.myHandOrder) expect(handUids.has(uid)).toBe(true);
+    }
+
+    // 全部座位的 31*5 张手牌 + 7 张底牌 = 162 张互不重复的牌
+    const sequence = room.game.getDealSequence();
+    const allUids = Object.values(sequence.hands).flat().concat(sequence.bottom);
+    expect(allUids).toHaveLength(162);
+    expect(new Set(allUids).size).toBe(162);
+  });
+
   it('fills empty seats with AI when prepared humans start', () => {
     const core = makeCore();
     const ownerSocket = attach(core, 'owner');

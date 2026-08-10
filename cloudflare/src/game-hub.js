@@ -420,10 +420,45 @@ export class GameHubCore {
       doubleEnabled: room.settings.doubleEnabled
     });
     room.game.deal();
+    this.emitDealEvents(room, roomId);
     this.broadcastRoomState(roomId);
     this.broadcastGameState(roomId);
     this.broadcastRoomList();
     this.resumeRoomFlow(room, roomId);
+  }
+
+  /**
+   * 开局时向玩家/观战者推送发牌顺序，客户端据此播放逐张发牌动画。
+   * 动画期间到达的 gameState 由客户端暂存，动画结束后再渲染。
+   */
+  emitDealEvents(room, roomId) {
+    const dealSequence = room.game.getDealSequence();
+    if (!dealSequence) return;
+    const base = {
+      roomId,
+      roundId: room.roundId,
+      seatOrder: [...room.game.playerNames],
+      landlord: room.game.landlord,
+      markedCard: room.game.markedCard?.id || null,
+      bottomCount: dealSequence.bottom.length
+    };
+    for (const player of room.players) {
+      if (!player || player.isAI) continue;
+      const socket = this.onlineUsers.get(player.username);
+      if (!socket) continue;
+      this.emit(socket, 'gameDeal', {
+        ...base,
+        myName: player.username,
+        myHandOrder: dealSequence.hands[player.username] || []
+      });
+    }
+    if (room.spectators.length) {
+      const spectatorPayload = { ...base, isSpectator: true, allHandsOrder: dealSequence.hands };
+      for (const spectator of room.spectators) {
+        const socket = this.onlineUsers.get(spectator.username);
+        if (socket) this.emit(socket, 'spectatorGameDeal', spectatorPayload);
+      }
+    }
   }
 
   async playCards(username, roomId, cards) {

@@ -1,4 +1,4 @@
-﻿/* ============================================
+/* ============================================
    五人斗地主 - 前端逻辑
    ============================================ */
 
@@ -26,9 +26,12 @@ let customHandZones = loadCustomHandZones();
 let lastConnectionToastAt = 0;
 let restoreInFlight = false;
 let pendingInviteRoomId = null;
+// 发牌动画状态：收到 gameDeal 后播放逐张发牌动画，期间暂存 gameState
+let dealAnim = null;
 
 // ============ SCREENS ============
 function showScreen(screenId) {
+  if (screenId !== 'gameScreen' && dealAnim?.active) cancelDealAnimation();
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(screenId).classList.add('active');
   // Chat UI: only show on game screen
@@ -1973,8 +1976,15 @@ function connectSocket() {
     clearSelectionState();
     resetPlayerGameUI();
     showScreen('gameScreen');
+    if (dealAnim?.active && state.roundId === dealAnim.roundId) {
+      dealAnim.latestState = state; // 动画结束后再渲染
+      return;
+    }
     renderGameState(state);
   });
+
+  socket.on('gameDeal', (data) => beginDealAnimation(data, false));
+  socket.on('spectatorGameDeal', (data) => beginDealAnimation(data, true));
 
   socket.on('gameOver', (data) => {
     showGameOver(data);
@@ -2092,6 +2102,10 @@ function connectSocket() {
     showScreen('gameScreen');
     const leaveBtn = document.getElementById('gameLeaveBtn');
     if (leaveBtn) leaveBtn.classList.add('hidden');
+    if (dealAnim?.active && state.roundId === dealAnim.roundId) {
+      dealAnim.latestState = state; // 动画结束后再渲染
+      return;
+    }
     renderSpectatorState(state);
   });
 
@@ -2425,6 +2439,179 @@ function manualStart() {
     return;
   }
   showStartPrompt(currentRoom);
+}
+
+// ============ 发牌动画 ============
+const DEAL_ROUND_MS = 150;   // 每轮（各家各一张）间隔
+const DEAL_FLIGHT_MS = 380;  // 单张牌飞行时长
+
+function beginDealAnimation(data, isSpectator) {
+  if (!data || !Array.isArray(data.seatOrder) || data.seatOrder.length === 0) return;
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+  cancelDealAnimation();
+  dealAnim = {
+    active: true,
+    roundId: data.roundId || null,
+    seatOrder: data.seatOrder,
+    landlord: data.landlord || null,
+    markedCard: data.markedCard || null,
+    bottomCount: Number(data.bottomCount) || 0,
+    myName: data.myName || null,
+    myHandOrder: Array.isArray(data.myHandOrder) ? data.myHandOrder : [],
+    allHandsOrder: data.allHandsOrder || null,
+    isSpectator: Boolean(isSpectator || data.isSpectator),
+    latestState: null,
+    timers: [],
+    layer: null
+  };
+  showScreen('gameScreen');
+  buildDealLayer();
+  runDealAnimation();
+}
+
+function buildDealLayer() {
+  const container = document.querySelector('#gameScreen .game-container');
+  if (!container || !dealAnim) return;
+  document.getElementById('dealLayer')?.remove();
+  const layer = document.createElement('div');
+  layer.id = 'dealLayer';
+  layer.className = 'deal-layer';
+  layer.innerHTML = `
+    <div class="deal-status">发牌中…</div>
+    <div class="deal-deck"><i></i><i></i><i></i></div>
+    <div class="deal-my-strip"></div>
+    <button type="button" class="deal-skip-btn">跳过发牌</button>`;
+  container.appendChild(layer);
+  dealAnim.layer = layer;
+  layer.querySelector('.deal-skip-btn').addEventListener('click', () => finishDealAnimation());
+
+  // 我的手牌落点与真实手牌区对齐
+  const myHand = document.getElementById('myHand');
+  if (myHand && !dealAnim.isSpectator) {
+    const lr = layer.getBoundingClientRect();
+    const hr = myHand.getBoundingClientRect();
+    const strip = layer.querySelector('.deal-my-strip');
+    strip.style.top = `${Math.max(8, hr.top - lr.top + hr.height / 2 - 36)}px`;
+  }
+}
+
+function dealSchedule(fn, delay) {
+  const timer = setTimeout(fn, delay);
+  dealAnim.timers.push(timer);
+}
+
+function dealDeckOrigin() {
+  const lr = dealAnim.layer.getBoundingClientRect();
+  const deck = dealAnim.layer.querySelector('.deal-deck');
+  const dr = deck.getBoundingClientRect();
+  return { x: dr.left - lr.left + dr.width / 2, y: dr.top - lr.top + dr.height / 2 };
+}
+
+function dealTargetForSeat(seatIdx) {
+  const layer = dealAnim.layer;
+  const lr = layer.getBoundingClientRect();
+  const myIdx = dealAnim.isSpectator ? -1 : dealAnim.seatOrder.indexOf(dealAnim.myName);
+  if (!dealAnim.isSpectator && myIdx >= 0 && seatIdx === myIdx) {
+    const strip = layer.querySelector('.deal-my-strip');
+    const r = strip.getBoundingClientRect();
+    return { x: r.left - lr.left + r.width / 2, y: r.top - lr.top + r.height / 2, mine: true };
+  }
+  if (!dealAnim.isSpectator && myIdx >= 0) {
+    const displayIdx = (seatIdx - myIdx + 5) % 5; // 1..4 → player1..player4
+    const el = document.getElementById(`player${displayIdx}`);
+    const anchor = el?.querySelector('.avatar-circle') || el;
+    if (anchor) {
+      const r = anchor.getBoundingClientRect();
+      return { x: r.left - lr.left + r.width / 2, y: r.top - lr.top + r.height / 2, mine: false };
+    }
+  }
+  // 观战或找不到锚点：顶部均匀分布的落点
+  return { x: lr.width * (0.12 + 0.19 * seatIdx), y: lr.height * 0.2, mine: false };
+}
+
+function runDealAnimation() {
+  const statusEl = dealAnim.layer.querySelector('.deal-status');
+  const orders = dealAnim.isSpectator ? (dealAnim.allHandsOrder || {}) : {};
+  const rounds = Math.max(
+    dealAnim.myHandOrder.length,
+    ...dealAnim.seatOrder.map(name => (orders[name] || []).length),
+    1
+  );
+
+  for (let r = 0; r < rounds; r++) {
+    dealSchedule(() => {
+      for (let s = 0; s < dealAnim.seatOrder.length; s++) dealFlyCard(s, r, false);
+    }, r * DEAL_ROUND_MS);
+  }
+
+  // 底牌飞向地主
+  const landlordIdx = Math.max(0, dealAnim.seatOrder.indexOf(dealAnim.landlord));
+  const bottomStart = rounds * DEAL_ROUND_MS + 250;
+  for (let i = 0; i < dealAnim.bottomCount; i++) {
+    dealSchedule(() => dealFlyCard(landlordIdx, -1, true), bottomStart + i * 90);
+  }
+  const finishAt = bottomStart + dealAnim.bottomCount * 90 + DEAL_FLIGHT_MS;
+  dealSchedule(() => {
+    statusEl.textContent = dealAnim.markedCard ? `明牌 ${dealAnim.markedCard} · 发牌完成` : '发牌完成';
+    statusEl.classList.add('done');
+  }, finishAt + 150);
+  dealSchedule(() => finishDealAnimation(), finishAt + 900);
+}
+
+function dealFlyCard(seatIdx, roundIdx, isBottom) {
+  if (!dealAnim?.active || !dealAnim.layer) return;
+  const layer = dealAnim.layer;
+  const origin = dealDeckOrigin();
+  const target = dealTargetForSeat(seatIdx);
+  const card = document.createElement('div');
+  card.className = `deal-fly-card${isBottom ? ' deal-fly-bottom' : ''}`;
+  card.style.left = `${origin.x}px`;
+  card.style.top = `${origin.y}px`;
+  layer.appendChild(card);
+  card.getBoundingClientRect(); // 强制回流，确保过渡生效
+  const dx = target.x - origin.x;
+  const dy = target.y - origin.y;
+  const tilt = (Math.random() * 24 - 12).toFixed(1);
+  card.style.transform = `translate(${dx}px, ${dy}px) rotate(${tilt}deg)`;
+  const cleanupTimer = setTimeout(() => {
+    card.remove();
+    if (target.mine && !isBottom) dealAppendMyCard(roundIdx);
+  }, DEAL_FLIGHT_MS + 80);
+  dealAnim.timers.push(cleanupTimer);
+}
+
+function dealAppendMyCard(roundIdx) {
+  const strip = dealAnim?.layer?.querySelector('.deal-my-strip');
+  if (!strip) return;
+  const uid = dealAnim.myHandOrder[roundIdx];
+  if (!uid) return;
+  const { suit, rank, color } = parseCard(uid.replace(/_\d+$/, ''));
+  const el = document.createElement('div');
+  el.className = `deal-my-card ${color}`;
+  el.innerHTML = `<span class="deal-my-rank">${rank}</span><span class="deal-my-suit">${suit}</span>`;
+  strip.appendChild(el);
+}
+
+function finishDealAnimation() {
+  if (!dealAnim) return;
+  const { latestState, isSpectator } = dealAnim;
+  cleanupDealAnimation();
+  if (latestState) {
+    if (isSpectator) renderSpectatorState(latestState);
+    else renderGameState(latestState);
+  }
+}
+
+function cancelDealAnimation() {
+  cleanupDealAnimation();
+}
+
+function cleanupDealAnimation() {
+  if (!dealAnim) return;
+  dealAnim.active = false;
+  for (const timer of dealAnim.timers) clearTimeout(timer);
+  document.getElementById('dealLayer')?.remove();
+  dealAnim = null;
 }
 
 function renderGameState(state) {

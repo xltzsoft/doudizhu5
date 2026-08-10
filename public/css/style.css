@@ -1416,3 +1416,93 @@ body {
   background: var(--rose); border: 2px solid #fff;
 }
 .chat-badge .unread-dot.hidden { display: none; }
+
+/* ============ 发牌动画 ============ */
+.deal-layer { position: absolute; inset: 0; z-index: 60; overflow: hidden; pointer-events: none; }
+.deal-status {
+  position: absolute; left: 50%; top: 30%; transform: translate(-50%, -50%);
+  padding: 7px 18px; border-radius: var(--radius-pill);
+  background: var(--bg-panel); border: 1px solid var(--border-primary);
+  box-shadow: var(--shadow-md); font-size: 14px; font-weight: 650;
+  color: var(--text-secondary); letter-spacing: 1px; white-space: nowrap;
+}
+.deal-status.done { color: var(--green); border-color: rgba(42, 157, 99, 0.3); }
+.deal-deck {
+  position: absolute; left: 50%; top: 45%; width: 62px; height: 90px;
+  transform: translate(-50%, -50%);
+}
+.deal-deck i,
+.deal-fly-card {
+  border-radius: var(--radius-md);
+  background:
+    repeating-linear-gradient(45deg, rgba(255,255,255,0.16) 0 6px, transparent 6px 12px),
+    linear-gradient(135deg, var(--brand), var(--accent));
+  box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.85), var(--shadow-card);
+}
+.deal-deck i { position: absolute; inset: 0; }
+.deal-deck i:nth-child(1) { transform: translate(-4px, -4px) rotate(-5deg); }
+.deal-deck i:nth-child(2) { transform: translate(-2px, -2px) rotate(-2deg); }
+.deal-fly-card {
+  position: absolute; width: 42px; height: 60px; margin: -30px 0 0 -21px;
+  transition: transform 0.38s cubic-bezier(0.25, 0.7, 0.35, 1);
+  will-change: transform; z-index: 2;
+}
+.deal-fly-bottom { box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.85), 0 0 12px var(--gold-glow); }
+.deal-my-strip {
+  position: absolute; left: 50%; top: 62%; transform: translateX(-50%);
+  display: flex; align-items: flex-end; height: 74px; pointer-events: none;
+}
+.deal-my-card {
+  width: 50px; height: 70px; margin-left: -34px;
+  background: linear-gradient(160deg, #ffffff 0%, var(--card-surface) 60%, #f7f0ea 100%);
+  border-radius: 7px; box-shadow: var(--shadow-card);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-weight: 700; animation: dealCardPop 0.18s ease;
+}
+.deal-my-card:first-child { margin-left: 0; }
+.deal-my-card.red { color: var(--card-red); }
+.deal-my-card.black { color: var(--card-black); }
+.deal-my-rank { font-size: 15px; line-height: 1; }
+.deal-my-suit { font-size: 12px; line-height: 1; margin-top: 2px; }
+.deal-skip-btn {
+  position: absolute; right: 16px; bottom: 16px; pointer-events: auto;
+  padding: 7px 16px; border-radius: var(--radius-pill);
+  border: 1px solid var(--border-secondary); background: var(--bg-panel);
+  color: var(--text-secondary); font: inherit; font-size: 13px; cursor: pointer;
+  box-shadow: var(--shadow-sm); transition: all 0.15s;
+}
+.deal-skip-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+@keyframes dealCardPop {
+  from { transform: translateY(8px) scale(0.7); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+@media (max-width: 640px) {
+  .deal-my-card { width: 40px; height: 56px; margin-left: -32px; }
+  .deal-my-rank { font-size: 13px; }
+  .deal-my-suit { font-size: 10px; }
+  .deal-deck { width: 50px; height: 72px; }
+  .deal-fly-card { width: 36px; height: 52px; margin: -26px 0 0 -18px; }
+}
+
+/* ============ 牌桌与牌面美化 ============ */
+.game-container::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse 75% 55% at 50% 40%, rgba(var(--brand-rgb), 0.10), transparent 70%);
+}
+.play-area { position: relative; }
+.play-area::before {
+  content: ''; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(680px, 88%); height: 190px; border-radius: 50%;
+  background: rgba(var(--brand-rgb), 0.05); border: 1px solid rgba(var(--brand-rgb), 0.12);
+  box-shadow: inset 0 2px 24px rgba(var(--brand-rgb), 0.10); pointer-events: none;
+}
+.last-play-display { position: relative; z-index: 1; }
+.game-card {
+  background: linear-gradient(160deg, #ffffff 0%, var(--card-surface) 55%, #f7f0ea 100%);
+  border-color: rgba(130, 90, 65, 0.12);
+}
+.my-hand .game-card:not(.selected):hover { transform: translateY(-8px); box-shadow: 0 8px 18px var(--card-shadow); }
+.display-card { animation: dealCardPop 0.18s ease; }
+.turn-indicator { padding: 4px 12px; border-radius: var(--radius-pill); background: rgba(var(--brand-rgb), 0.08); }
+.turn-indicator.my-turn { background: var(--green-bg); }
+.card-count-badge { background: rgba(var(--brand-rgb), 0.10); color: var(--brand); font-weight: 650; }
