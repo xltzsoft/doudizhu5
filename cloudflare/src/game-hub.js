@@ -1331,7 +1331,8 @@ export class GameHubCore {
         scores: result.scores,
         turnHistory: room.game.turnHistory,
         markedCard: room.game.markedCard?.id || '',
-        initialHands: room.game.initialHandsSnapshot
+        initialHands: room.game.initialHandsSnapshot,
+        roomId
       });
       for (const [playerName, score] of Object.entries(result.scores || {})) {
         const seat = room.players.find(player => player?.username === playerName);

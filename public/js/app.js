@@ -761,13 +761,26 @@ async function showHistory() {
   }
 }
 
+/** 玩家得分胶囊：按分数降序，正绿负红，当前玩家描边高亮 */
+function renderScoreChips(scores, myName) {
+  return Object.entries(scores || {})
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, score]) => {
+      const cls = score >= 0 ? 'win' : 'lose';
+      const me = name === myName ? ' is-me' : '';
+      return `<span class="history-chip ${cls}${me}"><span class="history-chip-name">${escapeHtml(name)}</span>${score > 0 ? '+' : ''}${score}</span>`;
+    }).join('');
+}
+
 /** 对局记录渲染为卡片列表：头部时间/房间/胜负徽章，中间地主与明牌信息，底部玩家得分条 */
+const historyRoomIndex = {};
 function renderHistoryList(games) {
   if (!Array.isArray(games) || games.length === 0) {
     return '<p class="empty-state">暂无对局记录</p>';
   }
   const myName = currentUser?.username;
   return games.map(g => {
+    historyRoomIndex[g.id] = { roomId: g.room_id || '', roomName: g.room_name || '' };
     const time = g.created_at
       ? new Date(g.created_at + 'Z').toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
       : '';
@@ -776,13 +789,7 @@ function renderHistoryList(games) {
     if (g.landlord) metaParts.push(`<span class="history-meta-item">大地主 <b>${escapeHtml(g.landlord)}</b></span>`);
     if (g.hidden_landlord) metaParts.push(`<span class="history-meta-item">暗地主 <b>${escapeHtml(g.hidden_landlord)}</b></span>`);
     if (g.marked_card) metaParts.push(`<span class="history-meta-item">明牌 ${renderMiniCard(g.marked_card)}</span>`);
-    const chips = Object.entries(g.scores || {})
-      .sort((a, b) => b[1] - a[1])
-      .map(([name, score]) => {
-        const cls = score >= 0 ? 'win' : 'lose';
-        const me = name === myName ? ' is-me' : '';
-        return `<span class="history-chip ${cls}${me}"><span class="history-chip-name">${escapeHtml(name)}</span>${score > 0 ? '+' : ''}${score}</span>`;
-      }).join('');
+    const chips = renderScoreChips(g.scores, myName);
     return `<div class="history-card">
       <div class="history-card-top">
         <span class="history-time">${time}</span>
@@ -792,6 +799,7 @@ function renderHistoryList(games) {
       ${metaParts.length ? `<div class="history-meta">${metaParts.join('')}</div>` : ''}
       <div class="history-card-bottom">
         <div class="history-scores">${chips}</div>
+        <button class="btn btn-ghost btn-sm" onclick="showRoomSettlement('${g.id}')">结算</button>
         <button class="btn btn-ghost btn-sm" onclick="showReplay('${g.id}')">回放</button>
       </div>
     </div>`;
@@ -800,6 +808,88 @@ function renderHistoryList(games) {
 
 function hideHistory() {
   document.getElementById('historyModal').classList.add('hidden');
+}
+
+// ============ ROOM SETTLEMENT ============
+function hideRoomSettlement() {
+  document.getElementById('roomSettlementModal').classList.add('hidden');
+}
+
+async function showRoomSettlement(historyId) {
+  const info = historyRoomIndex[historyId] || { roomId: '', roomName: '' };
+  const modal = document.getElementById('roomSettlementModal');
+  const content = document.getElementById('roomSettlementContent');
+  modal.classList.remove('hidden');
+  content.innerHTML = '<p class="empty-state">加载中…</p>';
+  try {
+    const res = await fetch(`/api/room-history?roomId=${encodeURIComponent(info.roomId)}&roomName=${encodeURIComponent(info.roomName)}`);
+    const rounds = await res.json();
+    content.innerHTML = renderRoomSettlement(info.roomName, rounds);
+  } catch (e) {
+    content.innerHTML = '<p>加载失败</p>';
+  }
+}
+
+/**
+ * 房间结算视图：汇总同一房间各轮次的输赢，给出总积分排名与每轮明细。
+ * 胜负按阵营判定（大地主+暗地主为地主方），总积分相同的按胜场排序。
+ */
+function renderRoomSettlement(roomName, rounds) {
+  if (!Array.isArray(rounds) || rounds.length === 0) {
+    return '<p class="empty-state">该房间暂无对局记录</p>';
+  }
+  const myName = currentUser?.username;
+  const stats = new Map();
+  for (const round of rounds) {
+    const landlordTeam = new Set([round.landlord, round.hidden_landlord].filter(Boolean));
+    for (const [name, score] of Object.entries(round.scores || {})) {
+      if (!stats.has(name)) stats.set(name, { total: 0, wins: 0, losses: 0 });
+      const st = stats.get(name);
+      st.total += Number(score) || 0;
+      const won = (round.winner_team === 'landlord') === landlordTeam.has(name);
+      if (won) st.wins += 1; else st.losses += 1;
+    }
+  }
+  const ranking = [...stats.entries()]
+    .map(([name, st]) => ({ name, ...st, games: st.wins + st.losses }))
+    .sort((a, b) => b.total - a.total || b.wins - a.wins || a.name.localeCompare(b.name));
+  const medals = ['🥇', '🥈', '🥉'];
+  const champion = ranking[0];
+
+  const rankingHtml = `
+    <div class="settlement-summary">
+      房间 <b>${escapeHtml(roomName || '未命名房间')}</b> · 共 ${rounds.length} 轮 · 榜首 <b>${escapeHtml(champion.name)}</b>
+      <span class="${champion.total >= 0 ? 'score-positive' : 'score-negative'}">${champion.total > 0 ? '+' : ''}${champion.total}</span>
+    </div>
+    <table class="leaderboard-table settlement-table">
+      <thead><tr><th>#</th><th>玩家</th><th>总积分</th><th>胜</th><th>负</th><th>胜率</th></tr></thead>
+      <tbody>${ranking.map((p, i) => {
+        const winRate = p.games ? Math.round((p.wins / p.games) * 100) : 0;
+        return `<tr class="${p.name === myName ? 'is-me' : ''}">
+          <td class="settlement-rank">${medals[i] || i + 1}</td>
+          <td>${escapeHtml(p.name)}</td>
+          <td class="${p.total >= 0 ? 'score-positive' : 'score-negative'}">${p.total > 0 ? '+' : ''}${p.total}</td>
+          <td>${p.wins}</td><td>${p.losses}</td><td>${winRate}%</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+
+  const roundsHtml = rounds.map((round, i) => {
+    const landlordWin = round.winner_team === 'landlord';
+    const time = round.created_at
+      ? new Date(round.created_at + 'Z').toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : '';
+    return `<div class="settlement-round">
+      <div class="settlement-round-head">
+        <span class="settlement-round-no">第 ${i + 1} 轮</span>
+        <span class="history-time">${time}</span>
+        <span class="history-badge ${landlordWin ? 'landlord' : 'farmer'}">${landlordWin ? '地主胜' : '农民胜'}</span>
+      </div>
+      <div class="history-scores">${renderScoreChips(round.scores, myName)}</div>
+    </div>`;
+  }).join('');
+
+  return `${rankingHtml}<div class="settlement-rounds-title">轮次明细</div><div class="settlement-rounds">${roundsHtml}</div>`;
 }
 
 let replayData = null;

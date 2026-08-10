@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS game_history (
   turn_history TEXT,
   marked_card TEXT,
   initial_hands TEXT,
+  room_id TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 

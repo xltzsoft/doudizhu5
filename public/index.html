@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>五人斗地主</title>
-  <link rel="stylesheet" href="/css/style.css?v=20260811a">
+  <link rel="stylesheet" href="/css/style.css?v=20260811b">
   <style>
     .modal-overlay { z-index: 0; }
     .modal-content { position: relative; z-index: 1; }
@@ -168,6 +168,17 @@
       <div id="historyContent" class="history-content"></div>
       <div class="modal-actions">
         <button class="btn btn-ghost" onclick="hideHistory()">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Room Settlement Modal -->
+  <div id="roomSettlementModal" class="modal hidden" onclick="hideRoomSettlement()">
+    <div class="modal-content modal-wide" onclick="event.stopPropagation()">
+      <h3>🏆 房间结算</h3>
+      <div id="roomSettlementContent" class="settlement-content"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="hideRoomSettlement()">返回记录</button>
       </div>
     </div>
   </div>
@@ -396,6 +407,6 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/js/avatar-compression.js?v=20260615a"></script>
-  <script src="/js/app.js?v=20260811a"></script>
+  <script src="/js/app.js?v=20260811b"></script>
 </body>
 </html>

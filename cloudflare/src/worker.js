@@ -54,6 +54,9 @@ export async function handleApi(request, env, store, url = new URL(request.url))
   if (method === 'POST' && url.pathname === '/api/profile/avatar') return updateAvatar(request, env, store);
   if (method === 'GET' && url.pathname === '/api/leaderboard') return jsonResponse(await store.getLeaderboard());
   if (method === 'GET' && url.pathname === '/api/history') return jsonResponse(await store.getGameHistoryList());
+  if (method === 'GET' && url.pathname === '/api/room-history') {
+    return jsonResponse(await store.getRoomHistory(url.searchParams.get('roomId') || '', url.searchParams.get('roomName') || ''));
+  }
   if (method === 'GET' && url.pathname === '/api/rooms') return proxyHubJson(env, '/rooms');
 
   if (method === 'POST' && url.pathname === '/api/admin/login') return adminLogin(request, env);

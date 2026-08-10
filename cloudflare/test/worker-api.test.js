@@ -165,6 +165,19 @@ describe('worker HTTP API', () => {
     expect((await json(history))[0]).toMatchObject({ id: 'g1', room_name: '房间' });
   });
 
+  it('returns per-room round history via /api/room-history', async () => {
+    const db = new FakeD1Database();
+    const store = new D1Store(db);
+    await store.saveGameHistory({ id: 'g2', roomName: '房间', roomId: 'r1', players: ['alice'], scores: { alice: -10 } });
+    await store.saveGameHistory({ id: 'gX', roomName: '房间', roomId: 'r2', players: ['alice'], scores: { alice: 99 } });
+    await store.saveGameHistory({ id: 'g1', roomName: '房间', roomId: 'r1', players: ['alice'], scores: { alice: 20 } });
+    const env = makeEnv(db);
+
+    const res = await worker.fetch(new Request('https://example.com/api/room-history?roomId=r1&roomName=%E6%88%BF%E9%97%B4'), env);
+    const rounds = await json(res);
+    expect(rounds.map(row => row.id)).toEqual(['g2', 'g1']);
+  });
+
   it('notifies the game hub when avatar or nickname changes', async () => {
     const env = makeEnv();
     const hubCalls = [];

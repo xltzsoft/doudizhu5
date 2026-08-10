@@ -63,6 +63,7 @@ async function init() {
     );
   `);
   ensureColumn('game_history', 'initial_hands TEXT');
+  ensureColumn('game_history', 'room_id TEXT');
   save();
 }
 
@@ -288,18 +289,38 @@ module.exports = {
     save();
   },
 
-  saveGameHistory(id, roomName, players, landlord, hiddenLandlord, winner, winnerTeam, scores, turnHistory, markedCard, initialHands) {
-    db.run(`INSERT INTO game_history (id, room_name, players, landlord, hidden_landlord, winner, winner_team, scores, turn_history, marked_card, initial_hands)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  saveGameHistory(id, roomName, players, landlord, hiddenLandlord, winner, winnerTeam, scores, turnHistory, markedCard, initialHands, roomId) {
+    db.run(`INSERT INTO game_history (id, room_name, players, landlord, hidden_landlord, winner, winner_team, scores, turn_history, marked_card, initial_hands, room_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, roomName, JSON.stringify(players), landlord, hiddenLandlord || '', winner, winnerTeam,
-       JSON.stringify(scores), JSON.stringify(turnHistory), markedCard || '', JSON.stringify(initialHands || null)]);
+       JSON.stringify(scores), JSON.stringify(turnHistory), markedCard || '', JSON.stringify(initialHands || null), roomId || '']);
     save();
   },
 
   getGameHistoryList(limit = 50) {
     const results = [];
-    const stmt = db.prepare('SELECT id, room_name, players, landlord, hidden_landlord, winner, winner_team, scores, marked_card, created_at FROM game_history ORDER BY created_at DESC LIMIT ?');
+    const stmt = db.prepare('SELECT id, room_name, players, landlord, hidden_landlord, winner, winner_team, scores, marked_card, created_at, room_id FROM game_history ORDER BY created_at DESC LIMIT ?');
     stmt.bind([limit]);
+    while (stmt.step()) {
+      const row = stmt.getAsObject();
+      row.players = JSON.parse(row.players);
+      row.scores = JSON.parse(row.scores);
+      results.push(row);
+    }
+    stmt.free();
+    return results;
+  },
+
+  /** 同一房间的全部轮次（按时间正序），用于房间内结算统计 */
+  getRoomHistory(roomId, roomName, limit = 500) {
+    const results = [];
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 500, 1000));
+    const stmt = db.prepare(`SELECT id, room_name, players, landlord, hidden_landlord, winner, winner_team, scores, marked_card, created_at, room_id
+      FROM game_history
+      WHERE room_id = ? OR (room_id IS NULL AND room_name = ?)
+      ORDER BY created_at ASC, rowid ASC
+      LIMIT ?`);
+    stmt.bind([roomId || "", roomName || "", safeLimit]);
     while (stmt.step()) {
       const row = stmt.getAsObject();
       row.players = JSON.parse(row.players);

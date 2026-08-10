@@ -257,7 +257,7 @@ function execute(db, sql, params) {
   }
 
   if (sql.startsWith('INSERT INTO game_history')) {
-    const [id, roomName, players, landlord, hiddenLandlord, winner, winnerTeam, scores, turnHistory, markedCard, initialHands] = params;
+    const [id, roomName, players, landlord, hiddenLandlord, winner, winnerTeam, scores, turnHistory, markedCard, initialHands, roomId] = params;
     db.tables.game_history.push({
       id,
       room_name: roomName,
@@ -270,9 +270,16 @@ function execute(db, sql, params) {
       turn_history: turnHistory,
       marked_card: markedCard,
       initial_hands: initialHands,
+      room_id: roomId || '',
       created_at: nowSql()
     });
     return {};
+  }
+
+  if (sql.startsWith('SELECT id, room_name, players, landlord, hidden_landlord, winner, winner_team, scores, marked_card, created_at, room_id FROM game_history WHERE room_id = ?')) {
+    const [roomId, roomName, limit] = params;
+    const rows = db.tables.game_history.filter(game => game.room_id === roomId || (!game.room_id && game.room_name === roomName));
+    return { results: rows.slice(0, limit || 500).map(clone) };
   }
 
   if (sql.startsWith('SELECT id, room_name, players')) {

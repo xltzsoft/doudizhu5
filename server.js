@@ -1364,6 +1364,10 @@ app.get('/api/history', (req, res) => {
   res.json(userDB.getGameHistoryList());
 });
 
+app.get('/api/room-history', (req, res) => {
+  res.json(userDB.getRoomHistory(req.query.roomId || '', req.query.roomName || ''));
+});
+
 app.get('/api/history/:id', (req, res) => {
   const detail = userDB.getGameHistoryDetail(req.params.id);
   if (!detail) return res.status(404).json({ error: '对局不存在' });
@@ -2347,7 +2351,8 @@ function handleGameOver(room, roomId, result) {
       result.scores,
       room.game.turnHistory,
       room.game.markedCard?.id || '',
-      room.game.initialHandsSnapshot || null
+      room.game.initialHandsSnapshot || null,
+      room.id
     );
   } catch (e) {
     console.error('Failed to save game history:', e);

@@ -43,6 +43,19 @@ describe('D1Store', () => {
     expect(all).toHaveLength(2);
   });
 
+  it('returns per-room round history in chronological order', async () => {
+    const store = new D1Store(new FakeD1Database());
+    await store.saveGameHistory({ id: 'g2', roomName: '西瓜房', roomId: 'room1', players: ['a', 'b'], scores: { a: -20, b: 20 } });
+    await store.saveGameHistory({ id: 'gX', roomName: '别的房', roomId: 'room2', players: ['c'], scores: { c: 5 } });
+    await store.saveGameHistory({ id: 'g1', roomName: '西瓜房', roomId: 'room1', players: ['a', 'b'], scores: { a: 10, b: -10 } });
+    await store.saveGameHistory({ id: 'g0', roomName: '西瓜房', players: ['a', 'b'], scores: { a: 30, b: -30 } }); // 无 room_id 的旧记录按房间名兜底
+
+    const rounds = await store.getRoomHistory('room1', '西瓜房');
+    expect(rounds.map(row => row.id)).toEqual(['g2', 'g1', 'g0']);
+    expect(rounds[0]).toMatchObject({ room_id: 'room1', scores: { a: -20, b: 20 } });
+    expect(rounds[2]).toMatchObject({ room_id: '', scores: { a: 30, b: -30 } });
+  });
+
   it('stores ai settings and game history', async () => {
     const store = new D1Store(new FakeD1Database());
     expect(await store.getAiSettings()).toMatchObject({

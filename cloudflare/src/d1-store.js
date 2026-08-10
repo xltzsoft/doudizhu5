@@ -206,8 +206,8 @@ export class D1Store {
 
   async saveGameHistory(payload) {
     await this.db
-      .prepare(`INSERT INTO game_history (id, room_name, players, landlord, hidden_landlord, winner, winner_team, scores, turn_history, marked_card, initial_hands)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .prepare(`INSERT INTO game_history (id, room_name, players, landlord, hidden_landlord, winner, winner_team, scores, turn_history, marked_card, initial_hands, room_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .bind(
         payload.id,
         payload.roomName,
@@ -219,15 +219,30 @@ export class D1Store {
         JSON.stringify(payload.scores || {}),
         JSON.stringify(payload.turnHistory || []),
         payload.markedCard || '',
-        JSON.stringify(payload.initialHands || null)
+        JSON.stringify(payload.initialHands || null),
+        payload.roomId || ''
       )
       .run();
   }
 
   async getGameHistoryList(limit = 50) {
     const { results } = await this.db
-      .prepare('SELECT id, room_name, players, landlord, hidden_landlord, winner, winner_team, scores, marked_card, created_at FROM game_history ORDER BY created_at DESC LIMIT ?')
+      .prepare('SELECT id, room_name, players, landlord, hidden_landlord, winner, winner_team, scores, marked_card, created_at, room_id FROM game_history ORDER BY created_at DESC LIMIT ?')
       .bind(limit)
+      .all();
+    return (results || []).map(parseHistoryRow);
+  }
+
+  /** 同一房间的全部轮次（按时间正序），用于房间内结算统计 */
+  async getRoomHistory(roomId, roomName, limit = 500) {
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 500, 1000));
+    const { results } = await this.db
+      .prepare(`SELECT id, room_name, players, landlord, hidden_landlord, winner, winner_team, scores, marked_card, created_at, room_id
+        FROM game_history
+        WHERE room_id = ? OR (room_id IS NULL AND room_name = ?)
+        ORDER BY created_at ASC, rowid ASC
+        LIMIT ?`)
+      .bind(roomId || '', roomName || '', safeLimit)
       .all();
     return (results || []).map(parseHistoryRow);
   }
