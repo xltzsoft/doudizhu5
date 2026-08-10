@@ -1994,6 +1994,8 @@ function connectSocket() {
     showScreen('gameScreen');
     if (dealAnim?.active && state.roundId === dealAnim.roundId) {
       dealAnim.latestState = state; // 动画结束后再渲染
+      // 要地主流程：轮到"我"决策时手牌保持背面，盲要才是真正的盲要
+      if (state.phase === 'claiming' && state.claim?.isMyDecision) dealAnim.hideMyCards = true;
       return;
     }
     renderGameState(state);
@@ -2626,8 +2628,14 @@ function dealAppendMyCard(roundIdx) {
   if (!strip) return;
   const uid = dealAnim.myHandOrder[roundIdx];
   if (!uid) return;
-  const { suit, rank, color } = parseCard(uid.replace(/_\d+$/, ''));
   const el = document.createElement('div');
+  if (dealAnim.hideMyCards) {
+    // 要地主流程：手牌以背面集齐，"盲要"决策前不泄露牌面
+    el.className = 'deal-my-card card-back';
+    strip.appendChild(el);
+    return;
+  }
+  const { suit, rank, color } = parseCard(uid.replace(/_\d+$/, ''));
   el.className = `deal-my-card ${color}`;
   el.innerHTML = `<span class="deal-my-rank">${rank}</span><span class="deal-my-suit">${suit}</span>`;
   strip.appendChild(el);
@@ -2834,7 +2842,9 @@ function renderGameState(state) {
     lastPlayDisplay.innerHTML = '<span style="color:var(--text-quaternary);font-size:14px">新一轮开始</span>';
   }
 
-  renderMyHand(state.myHand || []);
+  renderMyHand(state.myHand || [], {
+    faceDown: state.phase === 'claiming' && Boolean(state.claim?.isMyDecision) && !claimHandViewed
+  });
   updateRevealHandButton(state);
 
   const passBtn = document.getElementById('passBtn');
@@ -2989,7 +2999,7 @@ function renderCustomHand(hand) {
   `).join('');
 }
 
-function renderMyHand(hand) {
+function renderMyHand(hand, options = {}) {
   const container = document.getElementById('myHand');
   const handList = Array.isArray(hand) ? hand : [];
   const countEl = document.getElementById('myCardCount');
@@ -2997,6 +3007,12 @@ function renderMyHand(hand) {
   syncHandModeButtons();
 
   container.className = `my-hand hand-mode-${handDisplayMode}`;
+  if (options.faceDown) {
+    // 要地主决策前：整副手牌背面朝上，"盲要"时不可见牌面
+    container.innerHTML = handList.map(() => '<div class="game-card card-back-face" aria-hidden="true"></div>').join('');
+    updateSelectionHint();
+    return;
+  }
   if (handDisplayMode === 'stack') {
     container.innerHTML = renderStackHand(handList);
   } else if (handDisplayMode === 'custom') {

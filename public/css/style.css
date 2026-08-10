@@ -1483,6 +1483,15 @@ body {
 .deal-my-card:first-child { margin-left: 0; }
 .deal-my-card.red { color: var(--card-red); }
 .deal-my-card.black { color: var(--card-black); }
+/* 要地主"盲要"期间的背面手牌 */
+.deal-my-card.card-back,
+.game-card.card-back-face {
+  background:
+    repeating-linear-gradient(45deg, rgba(255,255,255,0.16) 0 6px, transparent 6px 12px),
+    linear-gradient(135deg, var(--brand), var(--accent));
+  box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.85), var(--shadow-card);
+}
+.game-card.card-back-face { cursor: default; }
 .deal-my-rank { font-size: 15px; line-height: 1; }
 .deal-my-suit { font-size: 12px; line-height: 1; margin-top: 2px; }
 .deal-skip-btn {
@@ -1522,7 +1531,7 @@ body {
   background: linear-gradient(160deg, #ffffff 0%, var(--card-surface) 55%, #f7f0ea 100%);
   border-color: rgba(130, 90, 65, 0.12);
 }
-.my-hand .game-card:not(.selected):hover { transform: translateY(-8px); box-shadow: 0 8px 18px var(--card-shadow); }
+.my-hand .game-card:not(.selected):not(.card-back-face):hover { transform: translateY(-8px); box-shadow: 0 8px 18px var(--card-shadow); }
 .display-card { animation: dealCardPop 0.18s ease; }
 .turn-indicator { padding: 4px 12px; border-radius: var(--radius-pill); background: rgba(var(--brand-rgb), 0.08); }
 .turn-indicator.my-turn { background: var(--green-bg); }
