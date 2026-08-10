@@ -2485,6 +2485,9 @@ function buildDealLayer() {
   dealAnim.layer = layer;
   layer.querySelector('.deal-skip-btn').addEventListener('click', () => finishDealAnimation());
 
+  // 动画期间隐藏出牌操作，避免未看到手牌就误操作（渲染 gameState 时会按阶段恢复）
+  document.getElementById('gameActions')?.classList.add('hidden');
+
   // 我的手牌落点与真实手牌区对齐
   const myHand = document.getElementById('myHand');
   if (myHand && !dealAnim.isSpectator) {
@@ -2599,6 +2602,9 @@ function finishDealAnimation() {
   if (latestState) {
     if (isSpectator) renderSpectatorState(latestState);
     else renderGameState(latestState);
+  } else {
+    // 兜底：状态尚未到达时先恢复按钮，后续 gameState 渲染会再按阶段设置
+    document.getElementById('gameActions')?.classList.remove('hidden');
   }
 }
 
