@@ -1,0 +1,17 @@
+{
+  "name": "doudizhu5-cloudflare",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "dev": "wrangler dev --local",
+    "deploy": "wrangler deploy",
+    "dry-run": "wrangler deploy --dry-run"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.9.0",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.20.0"
+  }
+}

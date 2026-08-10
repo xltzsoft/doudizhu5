@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>后台管理 · 五人斗地主</title>
+  <link rel="stylesheet" href="/css/style.css?v=20260516a">
+  <link rel="stylesheet" href="/css/admin.css?v=20260516a">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="admin-page">
+  <div id="adminLoginScreen" class="admin-screen">
+    <div class="auth-container admin-auth-container">
+      <div class="auth-logo">
+        <div class="logo-icon">🛠️</div>
+        <h1>后台管理</h1>
+        <p class="subtitle">用户、对局、充值与重置都在这里</p>
+      </div>
+      <div class="auth-form admin-auth-card">
+        <div class="form-group">
+          <label>管理员账号</label>
+          <input type="text" id="adminUsername" placeholder="请输入管理员账号" autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label>管理员密码</label>
+          <input type="password" id="adminPassword" placeholder="请输入管理员密码" autocomplete="current-password">
+        </div>
+        <button class="btn btn-primary btn-block" onclick="adminLogin()">进入后台</button>
+        <div class="auth-switch admin-auth-links">
+          <button class="btn btn-ghost" onclick="goToGameHome()">返回游戏首页</button>
+        </div>
+        <div id="adminLoginError" class="error-msg hidden"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="adminDashboardScreen" class="admin-screen hidden">
+    <div class="admin-shell">
+      <header class="admin-topbar">
+        <div>
+          <h1>五人斗地主后台管理</h1>
+          <p class="admin-subtitle">查看与修改用户、对局、充值、重置，以及当前房间概览</p>
+        </div>
+        <div class="admin-topbar-actions">
+          <span class="user-badge" id="adminCurrentUser">管理员</span>
+          <button class="btn btn-ghost" onclick="toggleAdminTheme()">🌓</button>
+          <button class="btn btn-ghost" onclick="refreshAdminDashboard()">⟳ 刷新</button>
+          <button class="btn btn-ghost" onclick="goToGameHome()">🏠 游戏首页</button>
+          <button class="btn btn-danger" onclick="adminLogout()">退出后台</button>
+        </div>
+      </header>
+
+      <section class="admin-overview-grid">
+        <div class="admin-stat-card">
+          <span class="admin-stat-label">用户数</span>
+          <strong id="overviewUserCount">0</strong>
+        </div>
+        <div class="admin-stat-card">
+          <span class="admin-stat-label">历史对局</span>
+          <strong id="overviewHistoryCount">0</strong>
+        </div>
+        <div class="admin-stat-card">
+          <span class="admin-stat-label">累计积分</span>
+          <strong id="overviewTotalScore">0</strong>
+        </div>
+        <div class="admin-stat-card">
+          <span class="admin-stat-label">在线用户 / 房间</span>
+          <strong id="overviewLiveStats">0 / 0</strong>
+        </div>
+      </section>
+
+      <section class="admin-panel admin-live-rooms-panel">
+        <div class="admin-panel-header">
+          <div>
+            <h2>当前房间概览</h2>
+            <p>可直接停止对局、删除房间、移出玩家或观战者，并支持后台隐身观战</p>
+          </div>
+        </div>
+        <div id="liveRoomsContainer" class="admin-live-rooms"></div>
+      </section>
+
+      <section class="admin-tabs">
+        <button class="btn btn-ghost admin-tab-btn active" data-tab="users" onclick="selectAdminTab('users')">用户管理</button>
+        <button class="btn btn-ghost admin-tab-btn" data-tab="games" onclick="selectAdminTab('games')">对局管理</button>
+        <button class="btn btn-ghost admin-tab-btn" data-tab="system" onclick="selectAdminTab('system')">系统操作</button>
+      </section>
+
+      <section id="adminTab-users" class="admin-tab active">
+        <div class="admin-two-column">
+          <div class="admin-panel">
+            <div class="admin-panel-header admin-panel-header-inline">
+              <div>
+                <h2>用户列表</h2>
+                <p>支持搜索、查看、修改、充值、重置统计</p>
+              </div>
+              <div class="admin-actions-inline">
+                <input type="text" id="userSearchInput" class="admin-search-input" placeholder="搜索用户名/昵称">
+                <button class="btn btn-ghost" onclick="loadUsers(false)">搜索</button>
+                <button class="btn btn-ghost" onclick="loadUsers(true)">刷新</button>
+              </div>
+            </div>
+            <div class="admin-table-wrapper">
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th>用户名</th>
+                    <th>昵称</th>
+                    <th>积分</th>
+                    <th>胜/负</th>
+                    <th>总场次</th>
+                    <th>最近登录</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="userTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="admin-panel">
+            <div class="admin-panel-header">
+              <div>
+                <h2>用户详情</h2>
+                <p>可直接改积分、胜负场次，也可为用户充值或重置</p>
+              </div>
+            </div>
+            <div id="userEditorEmpty" class="admin-empty">请先从左侧选择一个用户</div>
+            <form id="userEditorForm" class="admin-form hidden" onsubmit="event.preventDefault(); saveUserChanges();">
+              <div class="admin-form-grid admin-form-grid-2">
+                <div class="form-group">
+                  <label>用户 ID</label>
+                  <input type="text" id="editUserId" readonly>
+                </div>
+                <div class="form-group">
+                  <label>用户名</label>
+                  <input type="text" id="editUsername" readonly>
+                </div>
+                <div class="form-group">
+                  <label>昵称</label>
+                  <input type="text" id="editNickname" placeholder="2-20个字符">
+                </div>
+                <div class="form-group">
+                  <label>胜场</label>
+                  <input type="number" id="editWins" min="0">
+                </div>
+                <div class="form-group">
+                  <label>负场</label>
+                  <input type="number" id="editLosses" min="0">
+                </div>
+                <div class="form-group">
+                  <label>总场次</label>
+                  <input type="number" id="editGamesPlayed" min="0">
+                </div>
+                <div class="form-group">
+                  <label>积分</label>
+                  <input type="number" id="editScore">
+                </div>
+                <div class="form-group">
+                  <label>创建时间</label>
+                  <input type="text" id="editCreatedAt" readonly>
+                </div>
+                <div class="form-group">
+                  <label>最近登录</label>
+                  <input type="text" id="editLastLogin" readonly>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>重置密码（留空则不修改）</label>
+                <input type="password" id="editUserPassword" placeholder="至少 4 位">
+              </div>
+              <div class="admin-actions-inline admin-actions-stretch">
+                <button class="btn btn-primary" type="submit">保存用户</button>
+                <div class="admin-recharge-box">
+                  <input type="number" id="rechargeAmount" placeholder="充值积分" min="1">
+                  <button class="btn btn-accent" type="button" onclick="rechargeUser()">充值</button>
+                </div>
+                <button class="btn btn-danger" type="button" onclick="resetUserStats()">重置统计</button>
+                <button class="btn btn-danger" type="button" onclick="deleteUserAccount()">删除用户</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <section id="adminTab-games" class="admin-tab hidden">
+        <div class="admin-two-column">
+          <div class="admin-panel">
+            <div class="admin-panel-header admin-panel-header-inline">
+              <div>
+                <h2>对局列表</h2>
+                <p>支持搜索对局、查看完整记录、直接修改回放数据</p>
+              </div>
+              <div class="admin-actions-inline">
+                <input type="text" id="gameSearchInput" class="admin-search-input" placeholder="搜索房间/玩家/赢家">
+                <button class="btn btn-ghost" onclick="loadGames(false)">搜索</button>
+                <button class="btn btn-ghost" onclick="loadGames(true)">刷新</button>
+              </div>
+            </div>
+            <div class="admin-table-wrapper">
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th>对局 ID</th>
+                    <th>房间</th>
+                    <th>赢家</th>
+                    <th>获胜方</th>
+                    <th>时间</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="gameTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="admin-panel">
+            <div class="admin-panel-header">
+              <div>
+                <h2>对局详情 / 编辑</h2>
+                <p>支持直接编辑对局核心字段与 JSON 数据</p>
+              </div>
+            </div>
+            <div id="gameEditorEmpty" class="admin-empty">请先从左侧选择一局对局记录</div>
+            <form id="gameEditorForm" class="admin-form hidden" onsubmit="event.preventDefault(); saveGameChanges();">
+              <div class="admin-form-grid admin-form-grid-2">
+                <div class="form-group">
+                  <label>对局 ID</label>
+                  <input type="text" id="editGameId" readonly>
+                </div>
+                <div class="form-group">
+                  <label>房间名称</label>
+                  <input type="text" id="editGameRoomName">
+                </div>
+                <div class="form-group">
+                  <label>大地主</label>
+                  <input type="text" id="editGameLandlord">
+                </div>
+                <div class="form-group">
+                  <label>小地主</label>
+                  <input type="text" id="editGameHiddenLandlord">
+                </div>
+                <div class="form-group">
+                  <label>赢家</label>
+                  <input type="text" id="editGameWinner">
+                </div>
+                <div class="form-group">
+                  <label>获胜方</label>
+                  <select id="editGameWinnerTeam">
+                    <option value="landlord">地主</option>
+                    <option value="farmer">农民</option>
+                    <option value="">未设置</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>明牌</label>
+                  <input type="text" id="editGameMarkedCard">
+                </div>
+                <div class="form-group">
+                  <label>创建时间</label>
+                  <input type="text" id="editGameCreatedAt" readonly>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>玩家列表 JSON</label>
+                <textarea id="editGamePlayers" rows="4"></textarea>
+              </div>
+              <div class="form-group">
+                <label>积分 JSON</label>
+                <textarea id="editGameScores" rows="5"></textarea>
+              </div>
+              <div class="form-group">
+                <label>回合历史 JSON</label>
+                <textarea id="editGameTurnHistory" rows="10"></textarea>
+              </div>
+              <div class="form-group">
+                <label>起始手牌 JSON（可为 null）</label>
+                <textarea id="editGameInitialHands" rows="8"></textarea>
+              </div>
+              <div class="admin-actions-inline admin-actions-stretch">
+                <button class="btn btn-primary" type="submit">保存对局</button>
+                <button class="btn btn-danger" type="button" onclick="deleteGameRecord()">删除对局</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <section id="adminTab-system" class="admin-tab hidden">
+        <div class="admin-two-column admin-system-grid">
+          <div class="admin-panel">
+            <div class="admin-panel-header">
+              <div>
+                <h2>系统说明</h2>
+                <p>后台登录信息默认来自项目根目录 `.env` 中的管理员配置。</p>
+              </div>
+            </div>
+            <div class="admin-note-list">
+              <div class="admin-note-item">支持查看和修改用户统计、积分与密码。</div>
+              <div class="admin-note-item">支持按对局记录编辑房间、赢家、积分、回放 JSON。</div>
+              <div class="admin-note-item">支持用户充值、单用户重置、全用户重置、清空历史记录。</div>
+              <div class="admin-note-item admin-note-warning">危险操作需要输入确认口令，请谨慎使用，手滑会让你体验“后台即战场”。</div>
+            </div>
+          </div>
+
+          <div class="admin-panel">
+            <div class="admin-panel-header">
+              <div>
+                <h2>AI 出牌设置</h2>
+                <p>调整托管 AI 与提示算法的策略强度</p>
+              </div>
+            </div>
+            <form class="admin-form" onsubmit="saveAiSettings(event)">
+              <div class="admin-form-grid">
+                <div class="form-group">
+                  <label>聪明程度</label>
+                  <select id="aiDifficultySelect">
+                    <option value="easy">休闲：少计算，保守跟牌</option>
+                    <option value="normal">标准：优先少拆牌、少浪费炸弹</option>
+                    <option value="hard">高级协作：识别队友与残局压力</option>
+                  </select>
+                </div>
+                <label class="checkbox-row">
+                  <input type="checkbox" id="aiLlmEnabled">
+                  <span>开启 LLM 高级决策（仅高级协作模式生效）</span>
+                </label>
+                <div class="form-group">
+                  <label>LLM API 地址</label>
+                  <input type="url" id="aiLlmApiUrl" placeholder="http://sub.stzo.cn:11666/v1">
+                </div>
+                <div class="form-group">
+                  <label>LLM 模型</label>
+                  <input type="text" id="aiLlmModel" placeholder="K2.6-Inst">
+                </div>
+                <div id="aiLlmKeyStatus" class="admin-setting-summary">LLM API Key 状态：未检查</div>
+                <div id="aiDifficultySummary" class="admin-setting-summary">当前为标准模式。</div>
+                <button class="btn btn-primary" type="submit">保存 AI 设置</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="admin-panel admin-danger-panel">
+            <div class="admin-panel-header">
+              <div>
+                <h2>危险操作</h2>
+                <p>这些操作会直接修改数据库，请确认后执行</p>
+              </div>
+            </div>
+            <div class="admin-danger-actions">
+              <button class="btn btn-danger" onclick="resetAllUsers()">重置全部用户统计</button>
+              <button class="btn btn-danger" onclick="clearHistory()">清空全部对局历史</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div id="adminSpectateModal" class="modal hidden" onclick="closeAdminSpectate()">
+        <div class="modal-content modal-wide admin-spectate-modal" onclick="event.stopPropagation()">
+          <div class="admin-spectate-header">
+            <div>
+              <h3 id="adminSpectateTitle">隐身观战</h3>
+              <p id="adminSpectateHint" class="admin-spectate-hint">不会向房主、玩家或普通观战者发送任何提示。</p>
+            </div>
+            <button class="btn btn-ghost" onclick="closeAdminSpectate()">关闭</button>
+          </div>
+          <div id="adminSpectateMeta" class="admin-spectate-meta"></div>
+          <div id="adminSpectateEmpty" class="admin-empty">请选择一个正在进行中的房间开始隐身观战</div>
+          <div id="adminSpectateViewer" class="admin-spectate-viewer hidden">
+            <div class="game-info-bar admin-spectate-info-bar">
+              <div class="game-info-left">
+                <span class="marked-card-label">明牌：</span>
+                <span id="adminSpectateMarkedCard" class="card-mini"></span>
+                <span class="landlord-label" id="adminSpectateLandlordLabel"></span>
+              </div>
+              <div class="game-info-right">
+                <span id="adminSpectateTurnIndicator" class="turn-indicator"></span>
+                <span class="spectator-badge">🕶️ 管理员隐身观战</span>
+              </div>
+            </div>
+
+            <div class="play-area admin-spectate-play-area">
+              <div class="last-play-display" id="adminSpectateLastPlay"></div>
+            </div>
+
+            <div class="spectator-all-players admin-spectate-players" id="adminSpectatePlayers"></div>
+
+            <div class="card-counter-panel" id="adminSpectateCounterPanel">
+              <div class="card-counter-title">记牌器</div>
+              <div class="card-counter-grid" id="adminSpectateCounterGrid"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/admin.js?v=20260516a"></script>
+</body>
+</html>

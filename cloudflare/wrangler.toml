@@ -1,0 +1,28 @@
+name = "doudizhu5"
+main = "src/worker.js"
+compatibility_date = "2026-06-14"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "../public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "doudizhu5"
+database_id = "6f872adc-646c-4cd4-b85f-bf404d0098c4"
+
+[[durable_objects.bindings]]
+name = "GAME_HUB"
+class_name = "GameHub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GameHub"]
+
+[vars]
+ADMIN_USERNAME = "admin"
+ADMIN_TOKEN_EXPIRY_SECONDS = "43200"
+LLM_API_URL = "http://sub.stzo.cn:11666/v1"
+LLM_MODEL = "K2.6-Inst"

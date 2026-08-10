@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Secrets & env
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Local database
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
+
+# Deploy archives & scratch artifacts
+*.tar.gz
+key-*.png
+mobile-game-layout-check.png
+neuroaxis_4k.png
+optimized_neuroaxis_prompt.txt
+
+# Agent / tool state
+.agents/
+.claude/
+.codex/
+.serena/
+.spec-workflow/
+.playwright-mcp/
+
+# Cloudflare local state
+.wrangler/
+.dev.vars
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>open-world.cn DNS 管理</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="app">
+      <section id="loginView" class="login-panel">
+        <div>
+          <p class="eyebrow">DNSPod / Tencent Cloud API 3.0</p>
+          <h1>open-world.cn DNS 管理</h1>
+          <p class="muted">登录后可新增、修改、暂停、备注、删除解析记录，并通过高级面板调用受控的 DNSPod 相关接口。</p>
+        </div>
+        <form id="loginForm" class="login-form">
+          <label>
+            管理密码
+            <input id="password" type="password" autocomplete="current-password" required>
+          </label>
+          <button type="submit">登录</button>
+          <p id="loginError" class="error"></p>
+        </form>
+      </section>
+
+      <section id="dashboard" class="dashboard hidden">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Managed Domain</p>
+            <h1>open-world.cn</h1>
+          </div>
+          <div class="actions">
+            <button id="refreshBtn" type="button">刷新</button>
+            <button id="newRecordBtn" type="button" class="primary">新增解析</button>
+            <button id="logoutBtn" type="button" class="ghost">退出</button>
+          </div>
+        </header>
+
+        <section class="toolbar">
+          <input id="keyword" placeholder="搜索子域名或记录值">
+          <select id="recordTypeFilter">
+            <option value="">全部类型</option>
+          </select>
+          <select id="statusFilter">
+            <option value="">全部状态</option>
+            <option value="ENABLE">启用</option>
+            <option value="DISABLE">暂停</option>
+          </select>
+          <button id="searchBtn" type="button">筛选</button>
+        </section>
+
+        <section class="content-grid">
+          <article class="table-panel">
+            <div class="panel-head">
+              <h2>解析记录</h2>
+              <span id="recordCount" class="badge">0</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>主机</th>
+                    <th>类型</th>
+                    <th>线路</th>
+                    <th>记录值</th>
+                    <th>TTL</th>
+                    <th>MX</th>
+                    <th>权重</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="recordsBody"></tbody>
+              </table>
+            </div>
+          </article>
+
+          <aside class="side-panel">
+            <article>
+              <h2>域名信息</h2>
+              <dl id="domainInfo"></dl>
+            </article>
+            <article>
+              <h2>高级 API 调用</h2>
+              <form id="actionForm" class="stack">
+                <label>
+                  Action
+                  <select id="apiAction"></select>
+                </label>
+                <label>
+                  Payload JSON
+                  <textarea id="apiPayload" spellcheck="false" rows="10">{}</textarea>
+                </label>
+                <button type="submit">调用</button>
+              </form>
+              <pre id="apiResult"></pre>
+            </article>
+          </aside>
+        </section>
+      </section>
+
+      <dialog id="recordDialog">
+        <form id="recordForm" method="dialog" class="record-form">
+          <div class="panel-head">
+            <h2 id="recordDialogTitle">新增解析</h2>
+            <button type="button" id="closeDialogBtn" class="icon-btn">×</button>
+          </div>
+          <input id="recordId" type="hidden">
+          <div class="form-grid">
+            <label>主机记录<input id="subDomain" required placeholder="@ / www / api"></label>
+            <label>记录类型<select id="recordType" required></select></label>
+            <label>线路<input id="recordLine" required value="默认"></label>
+            <label>记录值<input id="recordValue" required></label>
+            <label>TTL<input id="ttl" type="number" min="1" value="600"></label>
+            <label>MX<input id="mx" type="number" min="0" value="0"></label>
+            <label>权重<input id="weight" type="number" min="0"></label>
+            <label>状态<select id="recordStatus"><option value="ENABLE">启用</option><option value="DISABLE">暂停</option></select></label>
+            <label class="full">备注<input id="remark"></label>
+          </div>
+          <p id="recordError" class="error"></p>
+          <div class="dialog-actions">
+            <button type="button" id="cancelDialogBtn" class="ghost">取消</button>
+            <button type="submit" class="primary">保存</button>
+          </div>
+        </form>
+      </dialog>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

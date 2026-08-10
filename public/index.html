@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>五人斗地主</title>
+  <link rel="stylesheet" href="/css/style.css?v=20260516a">
+  <style>
+    .modal-overlay { z-index: 0; }
+    .modal-content { position: relative; z-index: 1; }
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Auth Screen -->
+  <div id="authScreen" class="screen active">
+    <div class="auth-container">
+      <div class="auth-logo">
+        <div class="logo-icon">🃏</div>
+        <h1>五人斗地主</h1>
+        <p class="subtitle">在线多人对战 · 智能AI补位</p>
+      </div>
+      <div class="auth-form" id="loginForm">
+        <div class="form-group">
+          <label>用户名</label>
+          <input type="text" id="loginUsername" placeholder="请输入用户名" autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label>密码</label>
+          <input type="password" id="loginPassword" placeholder="请输入密码" autocomplete="current-password">
+        </div>
+        <button class="btn btn-primary btn-block" onclick="login()">登 录</button>
+        <div class="auth-switch">
+          还没有账号？<a href="#" onclick="showRegister()">立即注册</a>
+        </div>
+      </div>
+      <div class="auth-form hidden" id="registerForm">
+        <div class="form-group">
+          <label>用户名</label>
+          <input type="text" id="regUsername" placeholder="2-20个字符" autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label>昵称</label>
+          <input type="text" id="regNickname" placeholder="对局中显示，留空默认同用户名" autocomplete="nickname">
+        </div>
+        <div class="form-group">
+          <label>密码</label>
+          <input type="password" id="regPassword" placeholder="至少4位" autocomplete="new-password">
+        </div>
+        <button class="btn btn-primary btn-block" onclick="register()">注 册</button>
+        <div class="auth-switch">
+          已有账号？<a href="#" onclick="showLogin()">返回登录</a>
+        </div>
+      </div>
+      <div id="authError" class="error-msg hidden"></div>
+    </div>
+  </div>
+
+  <!-- Lobby Screen -->
+  <div id="lobbyScreen" class="screen">
+    <div class="lobby-container">
+      <div class="lobby-header">
+        <div class="header-left">
+          <div class="logo-small">🃏</div>
+          <h2>游戏大厅</h2>
+        </div>
+        <div class="header-right">
+          <span class="user-badge" id="userBadge"></span>
+          <span class="user-stats" id="userStats"></span>
+          <button class="btn btn-ghost" onclick="showProfileSettings()">个人设置</button>
+          <button class="btn btn-ghost" onclick="toggleTheme()">🌓</button>
+          <button class="btn btn-ghost" onclick="logout()">退出</button>
+        </div>
+      </div>
+      <div class="lobby-actions">
+        <button class="btn btn-primary" onclick="showCreateRoom()">
+          <span class="btn-icon">+</span> 创建房间
+        </button>
+        <div class="join-by-id">
+          <input type="text" id="joinRoomIdInput" placeholder="输入房间ID加入" maxlength="8">
+          <button class="btn btn-accent" onclick="joinRoomById()">加入</button>
+        </div>
+        <button class="btn btn-ghost" onclick="refreshRooms()">⟳ 刷新</button>
+        <button class="btn btn-ghost" onclick="showLeaderboard()">🏆 排行榜</button>
+        <button class="btn btn-ghost" onclick="showHistory()">📋 对局记录</button>
+      </div>
+      <div class="room-list" id="roomList">
+        <div class="empty-state">
+          <div class="empty-icon">🎴</div>
+          <p>暂无房间，创建一个开始游戏吧！</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Create Room Modal (global, outside screen containers) -->
+  <div id="createRoomModal" class="modal hidden" onclick="hideCreateRoom()">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <h3>创建房间</h3>
+      <div class="form-group">
+        <label>房间名称</label>
+        <input type="text" id="roomName" placeholder="输入房间名称（可选）">
+      </div>
+      <div class="form-group">
+        <label>一倍分数</label>
+        <input type="number" id="roomBaseScore" min="1" max="100000" step="1" value="10" placeholder="例如 10">
+      </div>
+      <label class="checkbox-row">
+        <input type="checkbox" id="roomDoubleEnabled">
+        <span>开启加倍：发牌后每位玩家可选择加倍，倍数为 2^加倍人数</span>
+      </label>
+      <label class="checkbox-row">
+        <input type="checkbox" id="roomOpenCards">
+                  <span>允许玩家主动明牌：首轮未出牌前明牌为 5 倍，已有出牌后仅公开手牌不加倍</span>
+      </label>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="hideCreateRoom()">取消</button>
+        <button class="btn btn-primary" onclick="createRoom()">创建</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Profile Modal -->
+  <div id="profileModal" class="modal hidden" onclick="hideProfileSettings()">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <h3>个人设置</h3>
+      <div class="profile-avatar-preview" id="profileAvatarPreview"></div>
+      <div class="form-group">
+        <label>用户名</label>
+        <input type="text" id="profileUsername" readonly>
+        <div class="form-tip">用户名用于登录，不会在对局中优先展示。</div>
+      </div>
+      <div class="form-group">
+        <label>昵称</label>
+        <input type="text" id="profileNickname" placeholder="2-20个字符">
+        <div class="form-tip" id="nicknameChangeTip">昵称每个自然月只能修改 1 次。</div>
+      </div>
+      <div class="form-group">
+        <label>头像</label>
+        <input type="file" id="avatarInput" accept="image/png,image/jpeg,image/webp" onchange="handleAvatarUpload(event)">
+        <div class="form-tip">默认使用用户名生成像素头像；上传头像会先在本地裁剪压缩到约 200KB 以内。</div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="resetAvatar()">恢复默认头像</button>
+        <button class="btn btn-accent" onclick="saveNickname()">保存昵称</button>
+        <button class="btn btn-primary" onclick="hideProfileSettings()">完成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leaderboard Modal -->
+  <div id="leaderboardModal" class="modal hidden" onclick="hideLeaderboard()">
+    <div class="modal-content modal-wide" onclick="event.stopPropagation()">
+      <h3>🏆 排行榜</h3>
+      <div id="leaderboardContent" class="leaderboard-content"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="hideLeaderboard()">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game History Modal -->
+  <div id="historyModal" class="modal hidden" onclick="hideHistory()">
+    <div class="modal-content modal-wide" onclick="event.stopPropagation()">
+      <h3>📋 对局记录</h3>
+      <div id="historyContent" class="history-content"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="hideHistory()">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game Replay Modal -->
+  <div id="replayModal" class="modal hidden" onclick="hideReplay()">
+    <div class="modal-content modal-wide modal-replay" onclick="event.stopPropagation()">
+      <h3>🔄 对局回放</h3>
+      <div class="replay-toolbar">
+        <button class="btn btn-ghost btn-sm" id="replayFirstBtn" onclick="replayFirst()">⏮ 开局</button>
+        <button class="btn btn-ghost btn-sm" id="replayPrevBtn" onclick="replayPrev()">← 上一轮</button>
+        <span id="replayStep" class="replay-step">0/0</span>
+        <input type="range" id="replayRange" class="replay-range" min="0" max="0" value="0" oninput="replayJump(this.value)">
+        <div class="replay-jump-box">
+          <input type="number" id="replayJumpInput" min="0" value="0" class="replay-jump-input">
+          <button class="btn btn-ghost btn-sm" onclick="jumpReplay()">跳转</button>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="replayNextBtn" onclick="replayNext()">下一轮 →</button>
+        <button class="btn btn-ghost btn-sm" id="replayLastBtn" onclick="replayLast()">终局 ⏭</button>
+      </div>
+      <div id="replayContent" class="replay-content"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="hideReplay()">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Room Screen -->
+  <div id="roomScreen" class="screen">
+    <div class="room-container">
+      <div class="room-header">
+        <button class="btn btn-ghost" onclick="leaveRoom()">← 返回大厅</button>
+        <h2 id="roomTitle">房间</h2>
+        <div class="room-header-actions">
+          <button class="btn btn-ghost btn-sm" onclick="copyRoomInviteLink()">复制邀请链接</button>
+          <div class="room-status-badge" id="roomStatusBadge">等待中</div>
+        </div>
+      </div>
+      <div class="seat-grid" id="seatGrid">
+        <!-- 5 seats rendered by JS -->
+      </div>
+      <div class="room-ready-summary" id="roomReadySummary"></div>
+      <div class="room-settings-panel" id="roomSettingsPanel"></div>
+      <div class="room-controls" id="roomControls">
+        <button class="btn btn-primary" id="readyBtn" onclick="toggleReady()">准 备</button>
+        <button class="btn btn-accent hidden" id="startBtn" onclick="manualStart()">开始游戏</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game Screen -->
+  <div id="gameScreen" class="screen">
+    <div class="game-container">
+      <!-- Game info bar -->
+      <div class="game-info-bar">
+        <div class="game-info-left">
+          <span class="marked-card-label">明牌：</span>
+          <span id="markedCardDisplay" class="card-mini"></span>
+          <span class="landlord-label" id="landlordLabel"></span>
+          <span class="room-multiplier-badge" id="gameMultiplierBadge"></span>
+        </div>
+        <div class="game-info-right">
+          <span id="turnIndicator" class="turn-indicator"></span>
+          <span id="spectatorBadge" class="spectator-badge hidden">👁 观战中</span>
+          <button class="btn btn-ghost btn-sm" id="gameLeaveBtn" onclick="leaveCurrentGame()">退出本局</button>
+        </div>
+      </div>
+
+      <!-- Spectator: all players area (shown only for spectators) -->
+      <div class="spectator-all-players hidden" id="spectatorAllPlayers">
+        <!-- Will be rendered by JS for each of the 5 players -->
+      </div>
+
+      <!-- Other players area (shown for regular players) -->
+      <div class="other-players" id="otherPlayersArea">
+        <div class="other-player" id="player1">
+          <div class="player-avatar">
+            <div class="avatar-circle"></div>
+            <span class="player-name"></span>
+            <span class="card-count-badge"></span>
+          </div>
+          <div class="player-last-play"></div>
+        </div>
+        <div class="other-player" id="player2">
+          <div class="player-avatar">
+            <div class="avatar-circle"></div>
+            <span class="player-name"></span>
+            <span class="card-count-badge"></span>
+          </div>
+          <div class="player-last-play"></div>
+        </div>
+        <div class="other-player" id="player3">
+          <div class="player-avatar">
+            <div class="avatar-circle"></div>
+            <span class="player-name"></span>
+            <span class="card-count-badge"></span>
+          </div>
+          <div class="player-last-play"></div>
+        </div>
+        <div class="other-player" id="player4">
+          <div class="player-avatar">
+            <div class="avatar-circle"></div>
+            <span class="player-name"></span>
+            <span class="card-count-badge"></span>
+          </div>
+          <div class="player-last-play"></div>
+        </div>
+      </div>
+
+      <!-- Center play area -->
+      <div class="play-area" id="playArea">
+        <div class="last-play-display" id="lastPlayDisplay"></div>
+      </div>
+
+      <!-- Card counter panel (for spectators) -->
+      <div class="card-counter-panel hidden" id="cardCounterPanel">
+        <div class="card-counter-title">记牌器</div>
+        <div class="card-counter-grid" id="cardCounterGrid"></div>
+      </div>
+
+      <!-- My hand (hidden for spectators) -->
+      <div class="my-hand-area" id="myHandArea">
+        <div class="hand-toolbar">
+          <span class="my-card-count" id="myCardCount">我的手牌 0 张</span>
+          <div class="hand-mode-controls" role="group" aria-label="手牌显示模式">
+            <button class="hand-mode-btn" data-mode="flat" onclick="setHandDisplayMode('flat')">平铺</button>
+            <button class="hand-mode-btn" data-mode="stack" onclick="setHandDisplayMode('stack')">堆叠</button>
+            <button class="hand-mode-btn" data-mode="custom" onclick="setHandDisplayMode('custom')">分区</button>
+          </div>
+          <button class="btn btn-accent btn-sm hidden" id="revealHandBtn" onclick="revealMyHand()">明牌</button>
+        </div>
+        <div class="my-hand" id="myHand"></div>
+        <div class="card-selection-hint" id="cardSelectionHint"></div>
+        <!-- Marked card selection UI (landlord only, during selectingMarked phase) -->
+        <div class="marked-selection-area hidden" id="markedSelectionArea">
+          <div class="marked-selection-hint">你是大地主！请选择2张同花色同数字的牌作为明牌来确定小地主</div>
+          <button class="btn btn-primary" id="confirmMarkedBtn" onclick="confirmMarkedCards()">确认明牌</button>
+        </div>
+        <div class="marked-selection-area hidden" id="doubleSelectionArea">
+          <div class="marked-selection-hint" id="doubleSelectionHint">请选择是否加倍</div>
+          <button class="btn btn-ghost" onclick="chooseDouble(false)">不加倍</button>
+          <button class="btn btn-primary" onclick="chooseDouble(true)">加倍</button>
+        </div>
+        <div class="game-actions" id="gameActions">
+          <button class="btn btn-ghost" id="passBtn" onclick="passCards()">不 出</button>
+          <button class="btn btn-hint" id="hintBtn" onclick="getHint()">提 示</button>
+          <button class="btn btn-ghost hidden" id="clearSelectionBtn" onclick="clearSelectedCards()">取消选择</button>
+          <button class="btn btn-primary" id="playBtn" onclick="playSelected()">出 牌</button>
+        </div>
+      </div>
+
+      <!-- Spectator: leave button -->
+      <div class="spectator-controls hidden" id="spectatorControls">
+        <button class="btn btn-ghost" onclick="leaveSpectate()">退出观战</button>
+      </div>
+    </div>
+
+    <!-- Chat Panel (game screen) -->
+    <div class="chat-panel collapsed" id="chatPanel">
+      <div class="chat-header" onclick="toggleChat()">
+        <h4>💬 聊天</h4>
+        <span class="chat-toggle-btn">×</span>
+      </div>
+      <div class="chat-messages" id="chatMessages">
+        <div class="chat-message" style="color:var(--text-quaternary)">暂无消息</div>
+      </div>
+      <div class="chat-input-row">
+        <input type="text" id="chatInput" placeholder="输入聊天内容..." maxlength="200" onkeydown="if(event.key==='Enter')sendChat()">
+        <button onclick="sendChat()">发送</button>
+      </div>
+    </div>
+    <!-- Chat toggle badge (visible when panel is collapsed, only in game) -->
+    <div class="chat-badge hidden" id="chatBadge" onclick="toggleChat()">
+      💬
+      <span class="unread-dot hidden" id="chatUnread"></span>
+    </div>
+
+    <!-- Game Over overlay -->
+    <div id="gameOverlay" class="game-overlay hidden">
+      <div class="game-over-card">
+        <h2 id="gameOverTitle"></h2>
+        <div id="gameOverMeta" class="game-over-meta"></div>
+        <div id="gameOverFinalHands" class="game-over-final-hands"></div>
+        <div id="gameOverScores"></div>
+        <button class="btn btn-primary" id="gameOverSettleBtn" onclick="closeGameOver()">结算并返回房间</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Spectate Request Notification (global, visible on any screen) -->
+  <div id="spectateRequestModal" class="modal hidden">
+    <div class="modal-content">
+      <h3>观战请求</h3>
+      <p id="spectateRequestText"></p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="denySpectate()">拒绝</button>
+        <button class="btn btn-primary" onclick="approveSpectate()">同意</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="startConfirmModal" class="modal hidden" onclick="cancelStartPrompt()">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <h3>确认开始对局</h3>
+      <p class="start-confirm-text" id="startConfirmText"></p>
+      <div class="start-confirm-players" id="startConfirmPlayers"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="cancelStartPrompt()">再等等</button>
+        <button class="btn btn-primary" onclick="confirmStartGame()">确认开始</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/avatar-compression.js?v=20260615a"></script>
+  <script src="/js/app.js?v=20260615a"></script>
+</body>
+</html>
