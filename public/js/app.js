@@ -32,6 +32,12 @@ let dealAnim = null;
 let claimHandViewed = false;
 let claimRoundId = null;
 let bottomRevealTimer = null;
+// 底牌公示本地展示保障：首次展示时间、所属回合与公示期间暂存的后续状态
+const BOTTOM_REVEAL_HOLD_MS = 8000; // 与服务端公示时长一致
+let bottomRevealShownAt = 0;
+let bottomRevealRoundId = null;
+let bottomRevealPending = null; // { state, render }
+let bottomRevealHoldTimer = null;
 
 // ============ SCREENS ============
 function showScreen(screenId) {
@@ -1998,6 +2004,7 @@ function connectSocket() {
       if (state.phase === 'claiming' && state.claim?.isMyDecision) dealAnim.hideMyCards = true;
       return;
     }
+    if (holdStateDuringBottomReveal(state, renderGameState)) return; // 公示至少完整展示 8 秒
     renderGameState(state);
   });
 
@@ -2124,6 +2131,7 @@ function connectSocket() {
       dealAnim.latestState = state; // 动画结束后再渲染
       return;
     }
+    if (holdStateDuringBottomReveal(state, renderSpectatorState)) return; // 公示至少完整展示 8 秒
     renderSpectatorState(state);
   });
 
@@ -2468,6 +2476,7 @@ function beginDealAnimation(data, isSpectator) {
   if (!data || !Array.isArray(data.seatOrder) || data.seatOrder.length === 0) return;
   if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
   cancelDealAnimation();
+  clearBottomRevealHold(); // 新一局发牌，清掉上一局的公示暂存
   dealAnim = {
     active: true,
     roundId: data.roundId || null,
@@ -2708,14 +2717,62 @@ function redealGameAction() {
 }
 
 /** 底牌公示：中央亮出地主的 7 张底牌，附带 8 秒倒计时（服务端到点自动进入下一阶段） */
+function clearBottomRevealHold() {
+  bottomRevealShownAt = 0;
+  bottomRevealRoundId = null;
+  bottomRevealPending = null;
+  if (bottomRevealHoldTimer) {
+    clearTimeout(bottomRevealHoldTimer);
+    bottomRevealHoldTimer = null;
+  }
+}
+
+/**
+ * 底牌公示必须在客户端完整展示 8 秒。
+ * 发牌动画会暂存动画期间收到的状态，动画结束时可能才首次渲染公示，
+ * 此时服务端 8 秒计时已接近耗尽，下一阶段的状态一到就会提前顶掉公示。
+ * 因此本地展示不足 8 秒时暂存后续状态，到点再渲染。返回 true 表示已暂存。
+ */
+function holdStateDuringBottomReveal(state, render) {
+  if (!bottomRevealShownAt || state.phase === 'bottomReveal') return false;
+  if ((state.roundId || null) !== bottomRevealRoundId) {
+    clearBottomRevealHold();
+    return false;
+  }
+  const elapsed = Date.now() - bottomRevealShownAt;
+  if (elapsed >= BOTTOM_REVEAL_HOLD_MS) {
+    clearBottomRevealHold();
+    return false;
+  }
+  bottomRevealPending = { state, render }; // 只保留最新状态
+  if (!bottomRevealHoldTimer) {
+    bottomRevealHoldTimer = setTimeout(() => {
+      bottomRevealHoldTimer = null;
+      const pending = bottomRevealPending;
+      bottomRevealPending = null;
+      bottomRevealShownAt = 0;
+      bottomRevealRoundId = null;
+      if (pending && gameState === pending.state) pending.render(pending.state);
+    }, BOTTOM_REVEAL_HOLD_MS - elapsed);
+  }
+  return true;
+}
+
+/** 底牌公示：中央亮出地主的 7 张底牌，附带 8 秒倒计时（服务端到点自动进入下一阶段） */
 function renderBottomRevealCenter(state) {
   const lastPlayDisplay = document.getElementById('lastPlayDisplay');
   const cards = sortCardsForDisplay(state.bottomReveal?.cards || []);
   const landlordName = state.bottomReveal?.landlord
     ? (state.playerDisplayNames?.[state.bottomReveal.landlord] || getGameDisplayName(state.bottomReveal.landlord, state))
     : '';
+  if (!bottomRevealShownAt) {
+    bottomRevealShownAt = Date.now();
+    bottomRevealRoundId = state.roundId || null;
+  }
+  // 倒计时与本地首次展示时间对齐，重复渲染不重置
+  const remainInit = Math.max(1, 8 - Math.floor((Date.now() - bottomRevealShownAt) / 1000));
   lastPlayDisplay.innerHTML = `<div class="bottom-reveal">
-    <div class="bottom-reveal-title">大地主 ${escapeHtml(landlordName)} 的底牌 · 公示中 <span id="bottomRevealCount">8</span>s</div>
+    <div class="bottom-reveal-title">大地主 ${escapeHtml(landlordName)} 的底牌 · 公示中 <span id="bottomRevealCount">${remainInit}</span>s</div>
     <div class="bottom-reveal-cards">${cards.map(cardId => {
       const { suit, rank, color } = parseCard(cardId);
       return `<div class="display-card ${color} bottom-reveal-card">
@@ -2726,7 +2783,7 @@ function renderBottomRevealCenter(state) {
   </div>`;
 
   if (bottomRevealTimer) clearInterval(bottomRevealTimer);
-  let remain = 8;
+  let remain = remainInit;
   bottomRevealTimer = setInterval(() => {
     remain -= 1;
     const el = document.getElementById('bottomRevealCount');
